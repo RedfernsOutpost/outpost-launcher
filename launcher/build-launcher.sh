@@ -1,13 +1,16 @@
 #!/bin/zsh
 # Build a themed launcher app for one game.
-#   zsh build-launcher.sh <theme folder> <output .app>
+#   zsh build-launcher.sh <theme folder> <output .app> [recipe]
 # The theme folder holds theme.json plus the files it names (logo, backgrounds, music, sounds);
 # everything in it is copied into the app's Resources. The game app (theme.json "gameApp") is
 # found relative to the output app's folder; its AppIcon.icns becomes the launcher's icon
 # unless the theme folder has its own AppIcon.icns.
+# With a recipe name, the art maker (make_theme.py, tools/, recipes/<recipe>) goes in too, so the
+# launcher can read the game's art and music by itself once the game is installed.
 set -e
 HERE="${0:A:h}"
-THEME="${1:?theme folder}"; OUT="${2:?output .app}"
+THEME="${1:?theme folder}"; OUT="${2:?output .app}"; RECIPE="${3:-}"
+KIT="${HERE:h}"
 THEME="${THEME:A}"; OUT="${OUT:A}"
 BIN="$HERE/.build/Launcher"
 mkdir -p "$HERE/.build"
@@ -24,10 +27,18 @@ XNAME=$(print -r -- "$NAME" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&g
 rm -rf "$OUT.partial"; mkdir -p "$OUT.partial/Contents/MacOS" "$OUT.partial/Contents/Resources"
 cp "$BIN" "$OUT.partial/Contents/MacOS/Launcher"
 cp -R "$THEME/" "$OUT.partial/Contents/Resources/"
-ICON=AppIcon
+if [[ -n "$RECIPE" ]]; then
+  K="$OUT.partial/Contents/Resources/kit"
+  mkdir -p "$K/tools" "$K/recipes"
+  cp "$KIT/make_theme.py" "$K/"; cp "$KIT"/tools/*.py "$K/tools/"; cp -R "$KIT/recipes/$RECIPE" "$K/recipes/"
+  print -r -- "$RECIPE" > "$K/recipe"
+fi
+ICON=AppIcon   # always named, so the game's icon shows once the art step adds it
 if [[ ! -f "$OUT.partial/Contents/Resources/AppIcon.icns" ]]; then
-  if [[ -f "$GAMEPATH/Contents/Resources/AppIcon.icns" ]]; then cp "$GAMEPATH/Contents/Resources/AppIcon.icns" "$OUT.partial/Contents/Resources/"
-  else echo "note: no AppIcon.icns found (game app at $GAMEPATH?)"; ICON=""; fi
+  INNER=("$OUT"/Contents/Game/*.app(N))
+  for G in "$GAMEPATH" "${INNER[@]}"; do
+    if [[ -f "$G/Contents/Resources/AppIcon.icns" ]]; then cp "$G/Contents/Resources/AppIcon.icns" "$OUT.partial/Contents/Resources/"; break; fi
+  done
 fi
 cat > "$OUT.partial/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -38,8 +49,8 @@ cat > "$OUT.partial/Contents/Info.plist" <<EOF
   <key>CFBundleName</key><string>$XNAME</string>
   <key>CFBundleDisplayName</key><string>$XNAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>2.0</string>
-  <key>CFBundleVersion</key><string>2</string>
+  <key>CFBundleShortVersionString</key><string>3.0</string>
+  <key>CFBundleVersion</key><string>3</string>
   <key>CFBundleIconFile</key><string>$ICON</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.games</string>

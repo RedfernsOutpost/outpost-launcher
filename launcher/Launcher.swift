@@ -5,7 +5,9 @@
 // uses (its preferences domain, keys "launcher.<ENV>").
 //
 // Self-tests (no screen capture): LAUNCHER_SNAPSHOT=/x.png draws the real window into a file
-// and quits; LAUNCHER_PANEL=Settings|Tools opens a panel first; LAUNCHER_MUTE=1 silences audio.
+// and quits; LAUNCHER_PANEL=Settings|Tools opens a panel first; LAUNCHER_MUTE=1 silences audio;
+// LAUNCHER_NO_AUTOART=1 skips the automatic art step; LAUNCHER_FORCE_MOVE=1 shows the move panel;
+// LAUNCHER_AUTOMOVE=1 (+ LAUNCHER_MOVE_TO=<folder>) moves the launcher at start.
 
 import SwiftUI
 import AppKit
@@ -173,6 +175,7 @@ final class Audio {
             }
         }
     }
+    func shutdown() { musicNode.stop(); engine.stop(); sfx.values.forEach { $0.stop() } }
     func play(_ name: String) {
         guard !muted, soundsOn, let p = sfx[name] else { return }
         p.currentTime = 0; p.volume = soundVolume; p.play()
@@ -204,7 +207,27 @@ final class Model: ObservableObject {
     @Published var status = ""
     @Published var launching = false
     @Published var trackIndex = 0
+    @Published var artBusy = false
     lazy var installer = Installer(self)
+    /// Set by the view: rebuild the whole menu from the theme files (after the art step wrote new ones).
+    var reload: () -> Void = {}
+
+    /// The art maker shipped inside this launcher (Resources/kit) and which game recipe it runs.
+    var kit: URL { res.appendingPathComponent("kit") }
+    var recipe: String? {
+        let r = (try? String(contentsOf: kit.appendingPathComponent("recipe"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return r.isEmpty || !FileManager.default.fileExists(atPath: kit.appendingPathComponent("make_theme.py").path) ? nil : r
+    }
+    var hasArt: Bool { logo != nil || !backgrounds.isEmpty || layerImages.contains { $0 != nil } }
+
+    /// Read the logo, backdrops, music and menu sounds from the installed game (in the background), then reload.
+    func refreshArt() {
+        guard !artBusy, recipe != nil, gameURL != nil else { return }
+        installer.addArt { ok in
+            self.status = ok ? "" : "Couldn't add the art and music (details: ~/Library/Logs/nxnative-launcher/art.log). The game plays fine."
+            if ok { self.reload() }
+        }
+    }
 
     static let tabs = ["GAME", "DISPLAY", "CONTROLS", "PERFORMANCE", "AUDIO", "CONTENT", "TOOLS"]
     static let tabOf: [String: String] = [
@@ -289,6 +312,7 @@ final class Model: ObservableObject {
               Row(id: "openSaves", label: "Open save folder", note: "Your save files, in Finder.", tab: "TOOLS", kind: .action { [weak self] in if let s = self { NSWorkspace.shared.open(s.saveFolder) } }, def: "", game: false),
               Row(id: "openLog", label: "Open the game's log", note: "Useful when something goes wrong.", tab: "TOOLS", kind: .action { [weak self] in if let s = self { NSWorkspace.shared.open(s.logFile) } }, def: "", game: false),
               Row(id: "showApp", label: "Show game app in Finder", note: "The nxnative app this launcher starts.", tab: "TOOLS", kind: .action { [weak self] in if let u = self?.gameURL { NSWorkspace.shared.activateFileViewerSelecting([u]) } }, def: "", game: false),
+              Row(id: "getArt", label: "Get art and music from the game", note: "Reads the logo, pictures, music and menu sounds from your installed game again.", tab: "TOOLS", kind: .action { [weak self] in self?.refreshArt() }, def: "", game: false),
               Row(id: "reset", label: "Reset game settings to tested defaults", note: "Puts every game setting back to what nxnative tested.", tab: "TOOLS", kind: .action { [weak self] in self?.resetDefaults() }, def: "", game: false)]
         // Installed content: names from the theme, plus what the game app itself reports
         var info: [(String, String, String)] = []
@@ -305,6 +329,7 @@ final class Model: ObservableObject {
             r.append(Row(id: id, label: l, note: id.hasPrefix("det") ? "Read from the game app itself." : "Installed content packed into the game app.", tab: "CONTENT", kind: .info, def: "", game: false))
             values[id] = v
         }
+        if recipe == nil || gameURL == nil { r.removeAll { $0.id == "getArt" } }
         rows = r
         for row in rows where row.def != "" {
             if row.game {
@@ -415,6 +440,7 @@ final class InputHub: ObservableObject {
         }
         GCController.controllers().forEach(attach)
     }
+    deinit { if let m = monitor { NSEvent.removeMonitor(m) } }
     private func attach(_ c: GCController) {
         guard let p = c.extendedGamepad else { return }
         func on(_ b: GCControllerButtonInput, _ i: Input) { b.pressedChangedHandler = { [weak self] _, _, pressed in if pressed { self?.handler?(i) } } }
@@ -431,11 +457,19 @@ final class InputHub: ObservableObject {
 
 // MARK: - Views
 
+/// Holds the menu; bumping the token rebuilds it from the theme files (used after new art was written).
+struct Host: View {
+    @State var token = 0
+    var body: some View { RootView(onReload: { token += 1 }).id(token) }
+}
+
 struct RootView: View {
+    var onReload: () -> Void = {}
     @StateObject var m = Model()
     @StateObject var input = InputHub()
     @State var menuIndex = 0
-    @State var panel: String? = ENV["LAUNCHER_PANEL"].flatMap { $0.isEmpty ? nil : $0 }       // nil, "SETTINGS", "TOOLS"
+    @State var panel: String? = Placement.needsMove ? "MOVE" : ENV["LAUNCHER_PANEL"].flatMap { $0.isEmpty ? nil : $0 }       // nil, "SETTINGS", "TOOLS", "INSTALL", "MOVE"
+    @State var slideTimer: Timer?
     @State var tab = "GAME"
     @State var rowIndex = 0
     @State var slide = 0
@@ -452,7 +486,8 @@ struct RootView: View {
         ZStack(alignment: .topLeading) {
             backdrop
             mainMenu
-            if panel == "INSTALL" { InstallPanel(m: m, t: t, close: { closePanel() }).transition(.opacity) }
+            if panel == "MOVE" { MovePanel(t: t, close: { closePanel() }).transition(.opacity) }
+            else if panel == "INSTALL" { InstallPanel(m: m, t: t, close: { closePanel() }).transition(.opacity) }
             else if panel != nil { settingsPanel.transition(.opacity) } else { statusBar }
             // Music controls stay reachable everywhere (bottom right, below any panel).
             VStack { Spacer(); HStack { Spacer(); musicControls } }.padding(.trailing, 60).padding(.bottom, panel == nil ? 36 : 22)
@@ -461,11 +496,26 @@ struct RootView: View {
         .clipped()
         .ignoresSafeArea()
         .foregroundStyle(Color(hex: t.text))
+        .onDisappear { slideTimer?.invalidate() }
         .onAppear {
             if panel?.uppercased() == "INSTALL" { m.installer.runChecks() }
             if let p = panel?.uppercased() { panel = p; tab = (p == "TOOLS" || p == "CONTENT") ? p : (visibleTabs.first ?? "GAME"); if let tb = ENV["LAUNCHER_TAB"]?.uppercased(), visibleTabs.contains(tb) { tab = tb } }
             input.handler = handle
-            if ENV["LAUNCHER_INSTALL_AUTOSTART"] == "1" { m.installer.runChecks(); FileHandle.standardError.write("checks: \(m.installer.checks.map { "\($0.id)=\($0.ok)" }) ready=\(m.installer.ready)\n".data(using: .utf8)!); m.installer.start() }
+            m.reload = { [m] in m.audio.shutdown(); slideTimer?.invalidate(); onReload() }
+            if !Placement.needsMove { Placement.clearQuarantineInBackground() }
+            if ENV["LAUNCHER_AUTOMOVE"] == "1" { FileHandle.standardError.write("move: \(Placement.moveAndRelaunch() ?? "ok") from \(Placement.bundle.path) needs=\(Placement.needsMove)\n".data(using: .utf8)!) }
+            // A game is in but the launcher has no art yet (e.g. downloaded blank): fetch it from the game.
+            if m.gameURL != nil && !m.hasArt && ENV["LAUNCHER_NO_AUTOART"] != "1" && ENV["LAUNCHER_SNAPSHOT"] == nil { m.refreshArt() }
+            if ENV["LAUNCHER_INSTALL_AUTOSTART"] == "1" {   // self-test: wait for the checks, then install
+                m.installer.runChecks()
+                Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { tm in
+                    let ins = m.installer
+                    guard !ins.checking && !ins.checks.isEmpty else { return }
+                    tm.invalidate()
+                    FileHandle.standardError.write("checks: \(ins.checks.map { "\($0.id)=\($0.ok ? "ok" : $0.auto ? "auto" : "NO")" }) ready=\(ins.ready)\n".data(using: .utf8)!)
+                    if ins.ready { ins.start() } else { exit(3) }
+                }
+            }
             startSlideshow()
             selfSnapshotIfAsked()
         }
@@ -497,7 +547,7 @@ struct RootView: View {
     func startSlideshow() {
         guard m.backgrounds.count > 1 else { return }
         withAnimation(.linear(duration: t.slideSeconds)) { zoom = true }
-        Timer.scheduledTimer(withTimeInterval: t.slideSeconds, repeats: true) { _ in
+        slideTimer = Timer.scheduledTimer(withTimeInterval: t.slideSeconds, repeats: true) { _ in
             withAnimation(.easeInOut(duration: 1.6)) { slide += 1 }
             zoom = false
             withAnimation(.linear(duration: t.slideSeconds)) { zoom = true }
@@ -555,6 +605,10 @@ struct RootView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     if m.installer.building {
                         Label("Installing… \(Int((m.installer.fraction ?? 0) * 100))%", systemImage: "arrow.down.circle")
+                            .font(font(t.labelFont, 24, .semibold)).foregroundStyle(Color(hex: t.accent))
+                    }
+                    if m.artBusy {
+                        Label("Adding the game's art and music…", systemImage: "paintpalette")
                             .font(font(t.labelFont, 24, .semibold)).foregroundStyle(Color(hex: t.accent))
                     }
                     if m.gameURL != nil {
@@ -722,6 +776,11 @@ struct RootView: View {
     // MARK: input
 
     func handle(_ i: Input) {
+        if panel == "MOVE" {
+            if i == .ok { m.audio.play("select"); _ = Placement.moveAndRelaunch() } else if i == .back && !Placement.mustMove { closePanel() }
+            return
+        }
+        if panel == "INSTALL" { if i == .back && !m.installer.building { closePanel() }; return }
         if panel == nil {
             switch i {
             case .up: menuIndex = (menuIndex + menu.count - 1) % menu.count; m.audio.play("move")
@@ -792,7 +851,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Launcher"
-        window.contentView = NSHostingView(rootView: RootView())
+        window.contentView = NSHostingView(rootView: Host())
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -873,7 +932,10 @@ struct Track: Decodable {
 // MARK: - Installer: turn the player's own .nsp / .nup into the native game app, once
 
 final class Installer: ObservableObject {
-    struct Check: Identifiable { let id: String; let ok: Bool; let detail: String; var fix: String? = nil; var value: String? = nil }
+    /// What clicking a check does: run a command in Terminal, ask for the Mac password and run it, or open a page.
+    enum Fix { case terminal(String), admin(String), open(URL) }
+    /// auto: not there yet, but the install sets it up by itself.
+    struct Check: Identifiable { let id: String; let ok: Bool; let detail: String; var fix: Fix? = nil; var value: String? = nil; var auto = false }
     weak var model: Model?
     @Published var checks: [Check] = []
     @Published var source: URL?
@@ -887,6 +949,7 @@ final class Installer: ObservableObject {
     @Published var finished = false
     @Published var checking = false
     @Published var notice = ""
+    @Published var artAdded = false
     private var userChoseKeys = false
     private var process: Process?
     let home = FileManager.default.homeDirectoryForCurrentUser
@@ -907,7 +970,7 @@ final class Installer: ObservableObject {
         }
         return false
     }
-    var ready: Bool { source != nil && !checking && (!needsKeys || keys != nil) && !checks.isEmpty && checks.allSatisfy(\.ok) && !building }
+    var ready: Bool { source != nil && !checking && (!needsKeys || keys != nil) && !checks.isEmpty && checks.allSatisfy { $0.ok || $0.auto } && !building }
 
     /// Every prod.keys in the usual places, newest first (highest master key); key values are never read out.
     static func allKeys(_ home: URL) -> [URL] {
@@ -1029,17 +1092,32 @@ final class Installer: ObservableObject {
             let xcOK = xc.contains("Xcode") && FileManager.default.fileExists(atPath: xc)   // selected AND actually there
             let xcInstalled = FileManager.default.fileExists(atPath: "/Applications/Xcode.app")
             c.append(Check(id: "Xcode", ok: xcOK,
-                detail: xcOK ? "Installed and selected" : xcInstalled ? "Installed but not selected. Click to copy the fix, paste it in Terminal." :
-                    "Not installed. Get Xcode from the App Store (free), open it once, then click here to copy the select command.",
-                fix: xcOK ? nil : "sudo xcode-select -s /Applications/Xcode.app"))
+                detail: xcOK ? "Installed and selected" : xcInstalled ? "Installed but not set up yet. Click here to finish it (asks for your Mac password)." :
+                    "Not installed. Click here to get it from the App Store (free), open it once when it's done, then come back.",
+                fix: xcOK ? nil : xcInstalled ? .admin("xcode-select -s /Applications/Xcode.app && xcodebuild -license accept && xcodebuild -runFirstLaunch")
+                    : .open(URL(string: "macappstore://apps.apple.com/app/id497799835")!)))
             let metal = self.shell(["xcrun", "-f", "metal"]).0 == 0
-            c.append(Check(id: "Metal compiler", ok: metal, detail: metal ? "Installed" : (xcOK ? "Missing. Click to copy the install command, paste it in Terminal." : "Comes with Xcode: fix Xcode first."),
-                           fix: metal ? nil : "xcodebuild -downloadComponent MetalToolchain"))
+            c.append(Check(id: "Metal compiler", ok: metal, detail: metal ? "Installed" : (xcOK ? "Downloaded for you during the install" : "Comes with Xcode: set up Xcode first."),
+                           auto: !metal && xcOK))
             let fm = FileManager.default
-            let nx = fm.fileExists(atPath: self.nxnative.appendingPathComponent("scripts/build_ipa_from_nsp.py").path)
-                && fm.fileExists(atPath: self.nxnative.appendingPathComponent(".venv/bin/python").path)
-            c.append(Check(id: "nxnative", ok: nx, detail: nx ? "~/nxnative" : "Needs ~/nxnative and its Python setup (see the kit README).",
-                           fix: nx ? nil : "git clone https://github.com/seedds/nxnative.git ~/nxnative"))
+            if !Tools.hasBrew {
+                c.append(Check(id: "Homebrew", ok: false,
+                    detail: "Needed for a few free tools. Click here to install it in Terminal (asks for your Mac password), then come back.",
+                    fix: .terminal("/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"")))
+            } else {
+                let missing = Tools.missingFormulas()
+                c.append(Check(id: "Tools", ok: missing.isEmpty, detail: missing.isEmpty ? "Homebrew tools ready" : "Installed for you: \(missing.joined(separator: ", "))", auto: !missing.isEmpty))
+            }
+            let cloned = fm.fileExists(atPath: Tools.nxnative.appendingPathComponent("scripts/build_ipa_from_nsp.py").path)
+            let nx = cloned && Tools.pythonWithBuildDeps() != nil
+            let canAuto = xcOK && Tools.hasBrew
+            c.append(Check(id: "nxnative", ok: nx,
+                detail: nx ? "~/nxnative" : !canAuto ? "Set up Xcode and Homebrew first; then nxnative is set up for you." :
+                    cloned ? "Its Python setup is made for you during the install" : "Downloaded to ~/nxnative for you during the install",
+                auto: !nx && canAuto))
+            if self.model?.recipe != nil && !Tools.artReady {
+                c.append(Check(id: "Art & music", ok: false, detail: "Tools to read the game's art and music: set up for you after the install", auto: true))
+            }
             var pickedKeys = keysNow
             if let s = src {
                 let size = Installer.size(of: s)
@@ -1080,10 +1158,31 @@ final class Installer: ObservableObject {
         }
     }
 
-    func copyFix(_ c: Check) {
+    func fix(_ c: Check) {
         guard let f = c.fix else { return }
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(f, forType: .string)
-        notice = "Copied: \(f). Paste it in Terminal (it may ask for your Mac password), then Recheck."
+        switch f {
+        case .open(let u):
+            NSWorkspace.shared.open(u)
+            notice = "Opened the App Store. Install Xcode, open it once, then come back here."
+        case .terminal(let cmd):
+            try? FileManager.default.createDirectory(at: Tools.support, withIntermediateDirectories: true)
+            let file = Tools.support.appendingPathComponent("fix-\(c.id.lowercased()).command")
+            let script = "#!/bin/zsh\nclear\necho 'Setting up \(c.id) for your game launcher…'\necho\n\(cmd)\necho\necho 'Done. Close this window and go back to the launcher.'\n"
+            try? script.write(to: file, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+            NSWorkspace.shared.open(file)
+            notice = "Opened Terminal. Follow it (it may ask for your Mac password), then come back: this checks again by itself."
+        case .admin(let cmd):
+            notice = "Enter your Mac password in the box that appears… (this can take a minute)"
+            DispatchQueue.global(qos: .userInitiated).async {
+                let esc = cmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                let r = Tools.run(URL(fileURLWithPath: "/usr/bin/osascript"), ["-e", "do shell script \"\(esc)\" with administrator privileges"])
+                DispatchQueue.main.async {
+                    self.notice = r.0 == 0 ? "Done." : r.1.contains("-128") ? "Cancelled." : "That didn't work: \(r.1.trimmingCharacters(in: .whitespacesAndNewlines))"
+                    self.runChecks()
+                }
+            }
+        }
     }
 
     static func size(of url: URL) -> UInt64 {
@@ -1122,8 +1221,97 @@ final class Installer: ObservableObject {
     }
 
     func start() {
-        guard ready, let s = source, let m = model else { return }
-        error = ""; log = []; fraction = 0; stage = "Starting…"; eta = ""; building = true
+        guard ready, let s = source else { return }
+        UserDefaults.standard.set(s.path, forKey: "installSource")
+        error = ""; log = []; fraction = 0; stage = "Getting ready…"; eta = ""; building = true; artAdded = false
+        let needMetal = checks.contains { $0.id == "Metal compiler" && !$0.ok }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let ok = self.setUp(metal: needMetal, artOnly: false)
+            DispatchQueue.main.async {
+                if ok { self.build(s) } else { self.building = false; if self.error.isEmpty { self.error = "Setup stopped. See the log." } }
+            }
+        }
+    }
+
+    /// One-time setup of everything the player shouldn't have to do by hand: the Metal compiler, Homebrew
+    /// tools, nxnative itself and a Python with its packages. Runs on a background queue; false on failure.
+    func setUp(metal: Bool, artOnly: Bool) -> Bool {
+        func say(_ line: String) { DispatchQueue.main.async { self.addLog(line) } }
+        func step(_ title: String, _ exe: URL, _ args: [String]) -> Bool {
+            DispatchQueue.main.async { self.stage = title }
+            say("$ \(exe.lastPathComponent) \(args.joined(separator: " "))")
+            let r = Tools.run(exe, args, line: say)
+            if r.0 != 0 { DispatchQueue.main.async { self.error = "\(title.replacingOccurrences(of: "…", with: "")) didn't work (exit \(r.0)). See the log, then try again." } }
+            return r.0 == 0
+        }
+        if metal && !artOnly {
+            guard step("Getting the Metal compiler (one time)…", URL(fileURLWithPath: "/usr/bin/xcodebuild"), ["-downloadComponent", "MetalToolchain"]) else { return false }
+        }
+        let missing = Tools.missingFormulas(artOnly: artOnly)
+        if !missing.isEmpty {
+            guard Tools.hasBrew else { DispatchQueue.main.async { self.error = "Homebrew is needed first (see the checks)." }; return false }
+            guard step("Installing free tools with Homebrew (one time)…", Tools.brew, ["install"] + missing) else { return false }
+        }
+        if !artOnly && !FileManager.default.fileExists(atPath: Tools.nxnative.appendingPathComponent("scripts/build_ipa_from_nsp.py").path) {
+            guard step("Downloading nxnative (one time)…", URL(fileURLWithPath: "/usr/bin/git"),
+                       ["clone", "--depth", "1", "https://github.com/seedds/nxnative.git", Tools.nxnative.path]) else { return false }
+        }
+        if !Tools.artReady || (!artOnly && Tools.pythonWithBuildDeps() == nil) {
+            if !FileManager.default.isExecutableFile(atPath: Tools.venvPython.path) {
+                guard let base = Tools.basePython() else { DispatchQueue.main.async { self.error = "No Python 3.12 or newer found." }; return false }
+                try? FileManager.default.createDirectory(at: Tools.support, withIntermediateDirectories: true)
+                guard step("Setting up Python (one time)…", base, ["-m", "venv", Tools.support.appendingPathComponent("venv").path]) else { return false }
+            }
+            guard step("Installing Python packages (one time)…", Tools.venvPython,
+                       ["-m", "pip", "install", "--disable-pip-version-check", "-q"] + Tools.buildPackages + Tools.artPackages) else { return false }
+        }
+        return true
+    }
+
+    /// The game's logo, backdrops, music and menu sounds, read from the installed game into this launcher.
+    func addArt(then done: @escaping (Bool) -> Void) {
+        guard let m = model, let recipe = m.recipe, m.gameURL != nil else { done(false); return }
+        m.artBusy = true
+        if building { stage = "Adding the game's art and music…"; fraction = 1; eta = "" }
+        let bundle = Bundle.main.bundleURL, res = m.res, kit = m.kit
+        var cover: URL?
+        if let src = UserDefaults.standard.string(forKey: "installSource").map({ URL(fileURLWithPath: $0) }) {
+            let dir = src.hasDirectoryPath ? src : src.deletingLastPathComponent()
+            cover = [dir, dir.deletingLastPathComponent()].map { $0.appendingPathComponent("imgs/covers/cover.jpg") }
+                .first { FileManager.default.fileExists(atPath: $0.path) }
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            var lines: [String] = []
+            let keep: (String) -> Void = { l in lines.append(l); DispatchQueue.main.async { self.addLog(l) } }
+            var ok = self.setUp(metal: false, artOnly: true)
+            if ok {
+                var args = [kit.appendingPathComponent("make_theme.py").path, recipe, bundle.path, "--out", res.path]
+                if let c = cover { args += ["--cover", c.path] }
+                let r = Tools.run(Tools.venvPython, args, env: ["NXNATIVE": Tools.nxnative.path], line: keep)
+                ok = r.0 == 0
+            }
+            let logDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/nxnative-launcher")
+            try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+            try? lines.joined(separator: "\n").write(to: logDir.appendingPathComponent("art.log"), atomically: true, encoding: .utf8)
+            DispatchQueue.main.async {
+                m.artBusy = false
+                if ok {
+                    self.artAdded = true
+                    try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: bundle.path)
+                    NSWorkspace.shared.noteFileSystemChanged(bundle.path)
+                    if let icon = NSImage(contentsOf: res.appendingPathComponent("AppIcon.icns")) { NSApp.applicationIconImage = icon }
+                } else {
+                    self.error = ""
+                    self.addLog("Couldn't add the art and music (log: ~/Library/Logs/nxnative-launcher/art.log). The game is installed and plays fine.")
+                }
+                done(ok)
+            }
+        }
+    }
+
+    private func build(_ s: URL) {
+        guard let m = model else { building = false; return }
+        stage = "Starting…"
         let fm = FileManager.default
         try? fm.createDirectory(at: m.embeddedGameFolder, withIntermediateDirectories: true)
         try? fm.createDirectory(at: workDir, withIntermediateDirectories: true)
@@ -1154,7 +1342,7 @@ final class Installer: ObservableObject {
                     "--platform", "mac-app", "--progress", "json", "--work-dir", workDir.path, "-o", out.path]
         if needsKeys, let k = keys { args += ["-k", k.path] }
         let p = Process()
-        p.executableURL = nxnative.appendingPathComponent(".venv/bin/python")
+        p.executableURL = Tools.pythonWithBuildDeps() ?? nxnative.appendingPathComponent(".venv/bin/python")
         p.arguments = args
         p.currentDirectoryURL = nxnative
         var env = ProcessInfo.processInfo.environment
@@ -1175,10 +1363,11 @@ final class Installer: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 pipe.fileHandleForReading.readabilityHandler = nil
-                self.building = false; self.process = nil
-                if ENV["LAUNCHER_INSTALL_AUTOSTART"] == "1" {   // self-test: report and quit
-                    FileHandle.standardError.write("install exit \(proc.terminationStatus) app=\(self.model?.findGameApp()?.path ?? "none") error=\(self.error)\n".data(using: .utf8)!)
-                    exit(proc.terminationStatus == 0 ? 0 : 1)
+                self.process = nil
+                if proc.terminationStatus != 0 { self.building = false }
+                if ENV["LAUNCHER_INSTALL_AUTOSTART"] == "1" && proc.terminationStatus != 0 {   // self-test: report and quit
+                    FileHandle.standardError.write("install exit \(proc.terminationStatus) app=none error=\(self.error)\n".data(using: .utf8)!)
+                    exit(1)
                 }
                 if proc.terminationStatus == 0 {
                     self.fraction = 1; self.stage = "Installed"; self.model?.locateGame()
@@ -1190,8 +1379,19 @@ final class Installer: ObservableObject {
                         let text = (try? String(contentsOf: env, encoding: .utf8)) ?? ""
                         if !text.contains("DM_LAUNCHER=") { try? (text + (text.isEmpty || text.hasSuffix("\n") ? "" : "\n") + "DM_LAUNCHER=0\n").write(to: env, atomically: true, encoding: .utf8) }
                     }
-                    self.finished = self.model?.gameURL != nil
-                    self.model?.audio.play("select")
+                    self.addArt { art in
+                        // nxnative's work folder is only needed during the build (it can be many GB).
+                        if ENV["LAUNCHER_KEEP_BUILD_FILES"] != "1" && (try? FileManager.default.removeItem(at: self.workDir)) != nil {
+                            self.addLog("Cleaned up the build files.")
+                        }
+                        self.building = false; self.stage = "Installed"
+                        self.finished = self.model?.gameURL != nil
+                        self.model?.audio.play("select")
+                        if ENV["LAUNCHER_INSTALL_AUTOSTART"] == "1" {   // self-test: report and quit
+                            FileHandle.standardError.write("install exit 0 app=\(self.model?.findGameApp()?.path ?? "none") art=\(art)\n".data(using: .utf8)!)
+                            exit(0)
+                        }
+                    }
                 } else if self.error.isEmpty {
                     self.error = proc.terminationStatus == 15 ? "Install cancelled." : "The build stopped (exit \(proc.terminationStatus)). See the log."
                 }
@@ -1258,7 +1458,7 @@ struct InstallPanel: View {
                             row("KEYS", kc?.value ?? ins.keys?.lastPathComponent ?? "Choose…", ok: kc?.ok ?? (ins.keys != nil), detail: kc?.detail ?? "Click to choose your prod.keys") { if !ins.building { ins.chooseKeys() } }
                         }
                         ForEach(ins.checks.filter { $0.id != "Keys" }) { c in
-                            row(c.id.uppercased(), c.value ?? (c.ok ? "✓" : "✗"), ok: c.ok, detail: c.detail, action: c.fix == nil ? nil : { ins.copyFix(c) })
+                            row(c.id.uppercased(), c.value ?? (c.ok ? "✓" : c.auto ? "AUTO" : "✗"), ok: c.ok || c.auto, detail: c.detail, action: c.fix == nil ? nil : { ins.fix(c) })
                         }
                         HStack {
                             if ins.checking { ProgressView().controlSize(.small); Text("Checking…").font(font(t.bodyFont, 12, .medium)).foregroundStyle(Color(hex: t.dim)) }
@@ -1277,8 +1477,8 @@ struct InstallPanel: View {
                     Rectangle().fill(Color(hex: t.border).opacity(0.6)).frame(width: 2)
                     VStack(alignment: .leading, spacing: 10) {
                         Text(ins.finished ? "INSTALLED" : "HOW THIS WORKS").font(font(t.labelFont, 20, .heavy))
-                        Text(ins.finished ? "All done. Close this and press PLAY." :
-                             "Pick your own game file. It is turned into a native Mac game once (game code rewritten for macOS, graphics converted for Metal) and placed inside this launcher. After that, just press PLAY.\n\nA first install takes from a few minutes to a few hours, depending on the game.")
+                        Text(ins.finished ? (ins.artAdded ? "All done. Press DONE to see the game's art and hear its music, then PLAY." : "All done. Close this and press PLAY.") :
+                             "Pick your own game file. It is turned into a native Mac game once (game code rewritten for macOS, graphics converted for Metal) and placed inside this launcher, then its logo, pictures and music are added here. After that, just press PLAY.\n\nAnything marked AUTO is set up for you during the install. A first install takes from a few minutes to a few hours, depending on the game.")
                             .font(font(t.bodyFont, 14, .regular)).foregroundStyle(Color(hex: t.dim)).fixedSize(horizontal: false, vertical: true)
                         if !ins.error.isEmpty { Text(ins.error).font(font(t.bodyFont, 13, .semibold)).foregroundStyle(Color(hex: t.accent)) }
                         Text("LOG").font(font(t.labelFont, 13, .heavy)).foregroundStyle(Color(hex: t.dim)).padding(.top, 6)
@@ -1295,6 +1495,10 @@ struct InstallPanel: View {
             .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color(hex: t.border), lineWidth: 2))
             .frame(width: 1080, height: 620)
             .shadow(color: .black.opacity(0.6), radius: 30)
+        }
+        // Back from Terminal, the App Store or a password box: look again by itself.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if !ins.building && !ins.finished { ins.runChecks() }
         }
     }
 
@@ -1339,7 +1543,168 @@ struct InstallPanel: View {
             .opacity(enabled ? 1 : 0.4)
             .contentShape(Rectangle())
             .onTapGesture {
-                if ins.finished { close() } else if ins.building { ins.cancel() } else if ins.ready { m.audio.play("select"); ins.start() } else { m.audio.play("back") }
+                if ins.finished { if ins.artAdded { m.reload() } else { close() } } else if ins.building { ins.cancel() } else if ins.ready { m.audio.play("select"); ins.start() } else { m.audio.play("back") }
             }
+    }
+}
+
+// MARK: - Tools the install needs (found, or set up for the player)
+
+enum Tools {
+    static let home = FileManager.default.homeDirectoryForCurrentUser
+    static let nxnative = home.appendingPathComponent("nxnative")
+    static let support = home.appendingPathComponent("Library/Application Support/nxnative-launcher")
+    static var venvPython: URL { support.appendingPathComponent("venv/bin/python") }
+    static let brew = URL(fileURLWithPath: "/opt/homebrew/bin/brew")
+    static var hasBrew: Bool { FileManager.default.isExecutableFile(atPath: brew.path) }
+    /// Homebrew formulas, by the program each one installs: the build needs the first three, the art step the last two.
+    static let buildFormulas = [("xcodegen", "xcodegen"), ("zstd", "zstd"), ("glslang", "glslangValidator")]
+    static let artFormulas = [("vgmstream", "vgmstream-cli"), ("ffmpeg", "ffmpeg")]
+    static func missingFormulas(artOnly: Bool = false) -> [String] {
+        var f = (artOnly ? artFormulas : buildFormulas + artFormulas)
+            .filter { !FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/\($0.1)") }.map(\.0)
+        if basePython() == nil && (artOnly || pythonWithBuildDeps() == nil) && !FileManager.default.isExecutableFile(atPath: venvPython.path) { f.append("python@3.13") }
+        return f
+    }
+    static let buildPackages = ["lz4", "capstone>=5,<6", "fonttools", "nsz", "zbic", "backports.zstd; python_version < '3.14'"]
+    static let artPackages = ["Pillow>=11", "UnityPy>=1.25,<2"]
+
+    static func runs(_ py: URL, _ code: String) -> Bool {
+        FileManager.default.isExecutableFile(atPath: py.path) && run(py, ["-c", code]).0 == 0
+    }
+    /// A Python that can run nxnative's build: its own venv, or the launcher's.
+    static func pythonWithBuildDeps() -> URL? {
+        [nxnative.appendingPathComponent(".venv/bin/python"), venvPython].first { runs($0, "import lz4, capstone, fontTools, nsz") }
+    }
+    static var artReady: Bool { runs(venvPython, "import PIL, UnityPy") }
+    /// An Apple silicon Python 3.12+ to make the launcher's own venv from.
+    static func basePython() -> URL? {
+        ["/opt/homebrew/bin/python3.14", "/opt/homebrew/bin/python3.13", "/opt/homebrew/bin/python3.12", "/opt/homebrew/bin/python3"]
+            .map { URL(fileURLWithPath: $0) }
+            .first { runs($0, "import sys, platform; sys.exit(sys.version_info < (3, 12) or platform.machine() != 'arm64')") }
+    }
+
+    /// Run a program to the end; `line` gets each output line as it comes.
+    @discardableResult
+    static func run(_ exe: URL, _ args: [String], env extra: [String: String] = [:], line: ((String) -> Void)? = nil) -> (Int32, String) {
+        let p = Process(); p.executableURL = exe; p.arguments = args
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        env["HOMEBREW_NO_ENV_HINTS"] = "1"; env["PYTHONUNBUFFERED"] = "1"
+        extra.forEach { env[$0.key] = $0.value }
+        p.environment = env
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+        do { try p.run() } catch { return (-1, error.localizedDescription) }
+        var all = Data(), pending = Data()
+        while true {
+            let chunk = pipe.fileHandleForReading.availableData
+            if chunk.isEmpty { break }
+            all.append(chunk); pending.append(chunk)
+            while let nl = pending.firstIndex(of: 10) {
+                let l = String(decoding: pending.subdata(in: pending.startIndex..<nl), as: UTF8.self)
+                pending.removeSubrange(pending.startIndex...nl)
+                if !l.isEmpty { line?(l) }
+            }
+        }
+        if !pending.isEmpty { line?(String(decoding: pending, as: UTF8.self)) }
+        p.waitUntilExit()
+        return (p.terminationStatus, String(decoding: all, as: UTF8.self))
+    }
+}
+
+// MARK: - Where the launcher lives (a downloaded app must leave Downloads before it can install a game inside itself)
+
+enum Placement {
+    static var bundle: URL { Bundle.main.bundleURL }
+    /// macOS runs a freshly downloaded app from a hidden read-only copy ("App Translocation").
+    static var translocated: Bool { bundle.path.contains("/AppTranslocation/") }
+    static var readOnly: Bool { (try? bundle.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) ?? false }
+    static var inDownloads: Bool {
+        bundle.standardizedFileURL.path.hasPrefix(Tools.home.appendingPathComponent("Downloads").path + "/")
+    }
+    static let needsMove = ENV["LAUNCHER_FORCE_MOVE"] == "1" || translocated || readOnly || inDownloads
+    static var mustMove: Bool { translocated || readOnly }
+
+    /// The real place of a translocated app (Security framework's SecTranslocateCreateOriginalPathForURL).
+    static func originalURL() -> URL {
+        guard translocated, let h = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_LAZY),
+              let sym = dlsym(h, "SecTranslocateCreateOriginalPathForURL") else { return bundle }
+        typealias F = @convention(c) (CFURL, UnsafeMutablePointer<Unmanaged<CFError>?>?) -> Unmanaged<CFURL>?
+        let f = unsafeBitCast(sym, to: F.self)
+        return (f(bundle as CFURL, nil)?.takeRetainedValue()).map { $0 as URL } ?? bundle
+    }
+    static var destinationFolder: URL {
+        if let d = ENV["LAUNCHER_MOVE_TO"] { return URL(fileURLWithPath: d) }
+        let apps = URL(fileURLWithPath: "/Applications")
+        return FileManager.default.isWritableFile(atPath: apps.path) ? apps : Tools.home.appendingPathComponent("Applications")
+    }
+
+    /// Move (or copy, from a read-only disk) this launcher to Applications, clear its download flag and reopen it
+    /// from there. Returns an error message, or nil when the new copy is opening.
+    static func moveAndRelaunch() -> String? {
+        let fm = FileManager.default, src = originalURL(), folder = destinationFolder
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let name = src.deletingPathExtension().lastPathComponent
+        var dest = folder.appendingPathComponent("\(name).app"), n = 2
+        while fm.fileExists(atPath: dest.path) { dest = folder.appendingPathComponent("\(name) \(n).app"); n += 1 }
+        do {
+            if readOnly || !fm.isWritableFile(atPath: src.deletingLastPathComponent().path) { try fm.copyItem(at: src, to: dest) }
+            else { try fm.moveItem(at: src, to: dest) }
+        } catch {
+            return "Couldn't move it (\(error.localizedDescription)). Drag it into your Applications folder in Finder, then open it again."
+        }
+        clearQuarantine(dest)
+        for v in ["LAUNCHER_AUTOMOVE", "LAUNCHER_FORCE_MOVE", "LAUNCHER_MOVE_TO"] { unsetenv(v) }   // the new copy starts clean
+        let cfg = NSWorkspace.OpenConfiguration(); cfg.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: dest, configuration: cfg) { _, _ in DispatchQueue.main.async { NSApp.terminate(nil) } }
+        return nil
+    }
+
+    /// You already chose Open Anyway for this launcher; clearing the download flag keeps macOS from checking it
+    /// again each time the game or its art is added inside it.
+    static func clearQuarantine(_ url: URL) {
+        guard getxattr(url.path, "com.apple.quarantine", nil, 0, 0, 0) >= 0 else { return }
+        Tools.run(URL(fileURLWithPath: "/usr/bin/xattr"), ["-dr", "com.apple.quarantine", url.path])
+    }
+    static func clearQuarantineInBackground() {
+        let b = bundle
+        DispatchQueue.global(qos: .utility).async { clearQuarantine(b) }
+    }
+}
+
+struct MovePanel: View {
+    let t: Theme
+    let close: () -> Void
+    @State var error = ""
+    func font(_ name: String, _ size: CGFloat, _ w: Font.Weight = .bold) -> Font { .custom(name, size: size).weight(w) }
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            VStack(alignment: .leading, spacing: 18) {
+                Text("ONE QUICK STEP").font(font(t.labelFont, 22, .heavy))
+                Text(Placement.mustMove
+                     ? "macOS is running this launcher from a temporary, read-only copy, so it can't install your game yet. Move it to your Applications folder and it reopens from there."
+                     : "This launcher is in your Downloads folder. Move it to Applications so your game can be installed inside it and you can find it later.")
+                    .font(font(t.bodyFont, 17, .regular)).foregroundStyle(Color(hex: t.dim)).fixedSize(horizontal: false, vertical: true)
+                if !error.isEmpty { Text(error).font(font(t.bodyFont, 14, .semibold)).foregroundStyle(Color(hex: t.accent)).fixedSize(horizontal: false, vertical: true) }
+                HStack(spacing: 14) {
+                    Text("MOVE TO APPLICATIONS").font(font(t.menuFont, 22, .bold)).foregroundStyle(Color(hex: t.accentText))
+                        .frame(maxWidth: .infinity).frame(height: 54)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(LinearGradient(colors: [Color(hex: t.accent), Color(hex: t.accent2 ?? t.accent)], startPoint: .leading, endPoint: .trailing)))
+                        .contentShape(Rectangle())
+                        .onTapGesture { error = Placement.moveAndRelaunch() ?? "" }
+                    if !Placement.mustMove {
+                        Text("NOT NOW").font(font(t.menuFont, 20, .bold)).frame(width: 160, height: 54)
+                            .background(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: t.border), lineWidth: 1.5))
+                            .contentShape(Rectangle()).onTapGesture(perform: close)
+                    }
+                }
+            }
+            .padding(34).frame(width: 640)
+            .background(Color(hex: t.panel).opacity(0.94))
+            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color(hex: t.border), lineWidth: 2))
+            .shadow(color: .black.opacity(0.6), radius: 30)
+        }
     }
 }

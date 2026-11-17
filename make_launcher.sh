@@ -40,4 +40,4 @@ if [[ -z "$OUT" ]]; then
   elif [[ -n "$FROM" ]]; then OUT="${FROM:A:h}/$FILE"
   else OUT="$PWD/$FILE"; fi
 fi
-zsh "$KIT/launcher/build-launcher.sh" "$THEME" "$OUT"
+zsh "$KIT/launcher/build-launcher.sh" "$THEME" "$OUT" "$GAME"

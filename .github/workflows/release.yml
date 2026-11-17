@@ -1,0 +1,49 @@
+# Builds a ready-to-run launcher for every recipe and attaches them to a GitHub release.
+# Runs when a version tag is pushed (git tag v1.0.0 && git push --tags), or by hand from the Actions tab.
+# The launchers hold only code, colours and layout: each one reads its game's art and music from the
+# player's own copy after INSTALL.
+name: Release launchers
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the launchers
+        shell: zsh {0}
+        run: |
+          set -e
+          mkdir -p dist
+          for g in suikoden shiningpearl pokopia fireemblem oot firered; do
+            name=$(plutil -extract name raw -o - recipes/$g/theme.json)
+            app="${name//: / - }"
+            slug=$(print -r -- "$name" | iconv -f UTF-8 -t ASCII//TRANSLIT | tr -cs 'A-Za-z0-9' '-' | sed 's/^-//; s/-$//')
+            zsh make_launcher.sh $g --out "dist/$app.app"
+            ditto -c -k --sequesterRsrc --keepParent "dist/$app.app" "dist/$slug-Launcher.zip"
+            rm -rf "dist/$app.app"
+          done
+          ls -l dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.zip --clobber
+          else
+            gh release create "$TAG" dist/*.zip --title "Launchers $TAG" --notes-file .github/release-notes.md
+          fi
