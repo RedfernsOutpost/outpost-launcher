@@ -22,8 +22,8 @@ Each launcher is a small Mac app with the game's own logo, backdrops, menu music
 The easiest way: get a ready-made launcher from **[Releases](https://github.com/RedfernsOutpost/nxnative-launcher-kit/releases/latest)**.
 
 1. Download the zip for your game and double-click it.
-2. Open the app. macOS says it can't verify it, because the app isn't notarized (that needs a paid Apple developer account). Click **Done**.
-3. Open **System Settings → Privacy & Security**, scroll down, click **Open Anyway**, then **Open**. You only do this once.
+2. Open the app. macOS says it can't verify it, because the app isn't notarized yet. Click **Done** (not Move to Trash).
+3. Right away, open **System Settings → Privacy & Security**, scroll down to **Security**, click **Open Anyway**, enter your Mac password, then click **Open**. You only do this once. (Clicked Move to Trash by mistake? Open the Trash, right-click the app, **Put Back**.)
 4. The launcher offers to move itself out of Downloads. Click **Move to Applications**.
 5. Choose **INSTALL**, pick your game file and keys, and follow the checks.
 

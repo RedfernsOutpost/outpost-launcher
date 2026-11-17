@@ -1,8 +1,8 @@
 Download the launcher for your game, double-click the zip, and open the app.
 
 **First time you open it**
-1. macOS says it can't verify the app (it isn't notarized). Click **Done**.
-2. Open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**, then **Open**.
+1. macOS says it can't verify the app (it isn't notarized). Click **Done**, not Move to Trash.
+2. Right away, open **System Settings → Privacy & Security**, scroll down to **Security**, click **Open Anyway**, enter your Mac password, then **Open**. (Moved it to the Trash by mistake? Open the Trash, right-click it, **Put Back**.)
 3. The launcher offers to move itself to Applications. Click **Move to Applications**.
 
 **Install your game**
