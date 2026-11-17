@@ -30,7 +30,7 @@ jobs:
           for g in suikoden shiningpearl pokopia fireemblem oot firered; do
             name=$(plutil -extract name raw -o - recipes/$g/theme.json)
             app="${name//: / - }"
-            slug=$(print -r -- "$name" | iconv -f UTF-8 -t ASCII//TRANSLIT | tr -cs 'A-Za-z0-9' '-' | sed 's/^-//; s/-$//')
+            slug=$(print -r -- "$name" | iconv -f UTF-8 -t ASCII//TRANSLIT | tr -d "'\"^~" | tr -cs 'A-Za-z0-9' '-' | sed 's/^-//; s/-$//')
             zsh make_launcher.sh $g --out "dist/$app.app"
             ditto -c -k --sequesterRsrc --keepParent "dist/$app.app" "dist/$slug-Launcher.zip"
             rm -rf "dist/$app.app"
