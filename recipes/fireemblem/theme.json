@@ -1,0 +1,39 @@
+{
+  "name": "Fire Emblem: Fortune's Weave",
+  "gameApp": "Fire Emblem Fortune's Weave.app",
+  "titleID": "04007EF01F8AE000",
+  "platform": "Nintendo Switch 2",
+  "logo": "logo.png",
+  "logoWidth": 560,
+  "backgrounds": ["bg1.jpg","bg2.jpg","bg3.jpg","bg4.jpg","bg5.jpg","bg6.jpg","bg7.jpg","bg8.jpg","bg9.jpg","bg10.jpg","bg11.jpg"],
+  "playlist": [
+    {"file": "music-1.m4a", "title": "Title"},
+    {"file": "music-2.m4a", "title": "Main Theme"},
+    {"file": "music-3.m4a", "title": "Main Theme (B)"},
+    {"file": "music-4.m4a", "title": "Preparations 1"},
+    {"file": "music-5.m4a", "title": "Preparations 2"},
+    {"file": "music-6.m4a", "title": "Preparations 3"},
+    {"file": "music-7.m4a", "title": "Narration"}
+  ],
+  "sounds": {"move": "move.m4a", "select": "select.m4a", "back": "back.m4a", "start": "start.m4a"},
+  "menuFont": "Optima",
+  "labelFont": "Optima",
+  "bodyFont": "Optima",
+  "thinFont": "Optima",
+  "accent": "#F3E3B5",
+  "accent2": "#B8893A",
+  "glow": "#FFD27A",
+  "accentText": "#2A1610",
+  "text": "#FFF6E6",
+  "dim": "#E2CFAE",
+  "panel": "#1F1414",
+  "border": "#C9A25A",
+  "shade": "#120B0B",
+  "shadeStrength": 0.9,
+  "slideSeconds": 9,
+  "content": [
+    {"label": "Base game", "value": "Fire Emblem: Fortune's Weave"},
+    {"label": "Update", "value": "Version 1.1.1"},
+    {"label": "DLC", "value": "None"}
+  ]
+}

@@ -1,0 +1,10 @@
+# Generated from your own games: holds their art and audio. Never commit or share.
+themes/
+*.app/
+# Local build and Python environment
+.venv/
+launcher/.build/
+__pycache__/
+.DS_Store
+# Never commit keys
+*.keys

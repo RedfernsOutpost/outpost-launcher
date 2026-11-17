@@ -1,0 +1,42 @@
+{
+  "name": "The Legend of Zelda: Ocarina of Time",
+  "gameApp": "The Legend of Zelda - Ocarina of Time.app",
+  "titleID": "0400486024DEC000",
+  "platform": "Nintendo Switch 2",
+  "logo": "logo.png",
+  "logoWidth": 330,
+  "backgrounds": ["bg1.jpg","bg2.jpg","bg3.jpg","bg4.jpg","bg5.jpg","bg6.jpg","bg7.jpg","bg8.jpg","bg9.jpg","bg10.jpg","bg11.jpg","bg12.jpg"],
+  "playlist": [
+    {"file": "music-1.m4a", "title": "Title"},
+    {"file": "music-2.m4a", "title": "Great Fairy Fountain", "loopStart": 15.943},
+    {"file": "music-3.m4a", "title": "Kokiri Forest", "loopStart": 8.275},
+    {"file": "music-4.m4a", "title": "Lost Woods", "loopStart": 3.428},
+    {"file": "music-5.m4a", "title": "Zelda's Garden", "loopStart": 8.173},
+    {"file": "music-6.m4a", "title": "Lon Lon Ranch", "loopStart": 8.471},
+    {"file": "music-7.m4a", "title": "Goron City", "loopStart": 29.167},
+    {"file": "music-8.m4a", "title": "Zora's Domain", "loopStart": 16.875},
+    {"file": "music-9.m4a", "title": "Shrine of Time", "loopStart": 0.097},
+    {"file": "music-10.m4a", "title": "Sacred Forest Meadow"}
+  ],
+  "sounds": {"move": "move.m4a", "select": "select.m4a", "back": "back.m4a"},
+  "menuFont": "Hoefler Text",
+  "labelFont": "Hoefler Text",
+  "bodyFont": "Avenir Next",
+  "thinFont": "Avenir Next",
+  "accent": "#F4E2A6",
+  "accent2": "#C49A3A",
+  "glow": "#FFE08A",
+  "accentText": "#1D2414",
+  "text": "#F7F2E2",
+  "dim": "#D6D0B8",
+  "panel": "#101A14",
+  "border": "#C9A957",
+  "shade": "#07100C",
+  "shadeStrength": 0.85,
+  "slideSeconds": 9,
+  "content": [
+    {"label": "Base game", "value": "The Legend of Zelda: Ocarina of Time"},
+    {"label": "Update", "value": "Included (v131072)"},
+    {"label": "DLC", "value": "None"}
+  ]
+}

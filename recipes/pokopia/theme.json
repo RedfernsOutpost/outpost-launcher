@@ -1,0 +1,95 @@
+{
+  "name": "Pokémon Pokopia",
+  "gameApp": "Pokémon Pokopia.app",
+  "platform": "Nintendo Switch 2",
+  "logo": "logo.png",
+  "logoWidth": 340,
+  "backgrounds": [
+    "bg1.jpg",
+    "bg2.jpg",
+    "bg3.jpg",
+    "bg4.jpg",
+    "bg5.jpg",
+    "bg6.jpg",
+    "bg7.jpg",
+    "bg8.jpg",
+    "bg9.jpg",
+    "bg10.jpg",
+    "bg11.jpg"
+  ],
+  "playlist": [
+    {
+      "file": "music-1.m4a",
+      "title": "Title",
+      "loopStart": 13.269
+    },
+    {
+      "file": "music-2.m4a",
+      "title": "Opening",
+      "loopStart": 7.182
+    },
+    {
+      "file": "music-3.m4a",
+      "title": "Island A",
+      "loopStart": 26.471
+    },
+    {
+      "file": "music-4.m4a",
+      "title": "Cloud Sightseeing",
+      "loopStart": 2.191
+    },
+    {
+      "file": "music-5.m4a",
+      "title": "Center (Day)",
+      "loopStart": 4.994
+    },
+    {
+      "file": "music-6.m4a",
+      "title": "Dawn"
+    },
+    {
+      "file": "music-7.m4a",
+      "title": "Sekichiku A (Day)"
+    },
+    {
+      "file": "music-8.m4a",
+      "title": "Nibi A (Day)"
+    }
+  ],
+  "sounds": {
+    "move": "move.m4a",
+    "select": "select.m4a",
+    "back": "back.m4a",
+    "start": "start.m4a"
+  },
+  "menuFont": "Arial Rounded MT Bold",
+  "labelFont": "Arial Rounded MT Bold",
+  "bodyFont": "Avenir Next",
+  "thinFont": "Avenir Next",
+  "accent": "#FFFFFF",
+  "accent2": "#C9A7FF",
+  "glow": "#E59BFF",
+  "accentText": "#3A1666",
+  "text": "#FFFFFF",
+  "dim": "#E2D3FF",
+  "panel": "#2A1258",
+  "border": "#C59BFF",
+  "shade": "#1A0B3D",
+  "shadeStrength": 0.85,
+  "slideSeconds": 8,
+  "content": [
+    {
+      "label": "Base game",
+      "value": "Pokémon Pokopia"
+    },
+    {
+      "label": "Update",
+      "value": "Version 2.0.1"
+    },
+    {
+      "label": "DLC",
+      "value": "None"
+    }
+  ],
+  "titleID": "0400A3A01EE4C000"
+}

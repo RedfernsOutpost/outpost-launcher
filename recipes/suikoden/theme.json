@@ -1,0 +1,53 @@
+{
+  "name": "Suikoden I & II",
+  "gameApp": "Suikoden I&II HD (nxnative).app",
+  "presents": "Konami presents",
+  "platform": "Nintendo Switch",
+  "logo": "logo.png",
+  "backgrounds": [
+    "bg1.png",
+    "bg2.png",
+    "bg3.png",
+    "bg4.png",
+    "bg5.png",
+    "bg6.png",
+    "bg7.png",
+    "bg8.png",
+    "bg9.png",
+    "bg10.png"
+  ],
+  "music": "title.m4a",
+  "sounds": {
+    "move": "move.m4a",
+    "select": "select.m4a",
+    "back": "back.m4a"
+  },
+  "menuFont": "Avenir Next Condensed",
+  "labelFont": "Avenir Next Condensed",
+  "bodyFont": "Avenir Next",
+  "accent": "#F8E06A",
+  "accentText": "#2B1A00",
+  "text": "#FFF6E0",
+  "dim": "#E3D1A3",
+  "panel": "#1E1305",
+  "border": "#D08A1A",
+  "shade": "#05041B",
+  "slideSeconds": 9,
+  "accent2": "#B8860B",
+  "glow": "#FFD54A",
+  "content": [
+    {
+      "label": "Base game",
+      "value": "Suikoden I&II HD Remaster"
+    },
+    {
+      "label": "Update",
+      "value": "Version 1.0.3"
+    },
+    {
+      "label": "DLC",
+      "value": "Pre-Order Bonus (v1.0.2)"
+    }
+  ],
+  "titleID": "01004BD017080000"
+}

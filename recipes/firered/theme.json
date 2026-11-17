@@ -1,0 +1,32 @@
+{
+  "name": "Pokémon FireRed Version",
+  "gameApp": "Pokémon FireRed Version.app",
+  "titleID": "0100554023408000",
+  "platform": "Nintendo Switch (Game Boy Advance)",
+  "logo": "logo.png",
+  "logoWidth": 400,
+  "backgrounds": ["bg1.jpg"],
+  "playlist": [],
+  "sounds": {},
+  "menuFont": "Arial Rounded MT Bold",
+  "labelFont": "Arial Rounded MT Bold",
+  "bodyFont": "Avenir Next",
+  "thinFont": "Avenir Next",
+  "accent": "#FFE066",
+  "accent2": "#F08A24",
+  "glow": "#FFD24A",
+  "accentText": "#2A1405",
+  "text": "#FFFFFF",
+  "dim": "#F6D9C2",
+  "panel": "#2A0E08",
+  "border": "#F2A33A",
+  "shade": "#1A0805",
+  "shadeStrength": 0.8,
+  "content": [
+    {"label": "Base game", "value": "Pokémon FireRed Version (Game Boy Advance, Switch release)"},
+    {"label": "Update", "value": "None"},
+    {"label": "DLC", "value": "None"},
+    {"label": "Profile", "value": "Provisional (no tested nxnative profile)"},
+    {"label": "Keys", "value": "Needs prod.keys from firmware 21.0.0 or later"}
+  ]
+}

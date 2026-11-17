@@ -1,0 +1,92 @@
+{
+  "name": "Pokémon Shining Pearl",
+  "gameApp": "Pokémon Shining Pearl.app",
+  "platform": "Nintendo Switch",
+  "logo": "logo.png",
+  "skyTop": "#6FB3EC",
+  "skyBottom": "#F4E2EE",
+  "layers": [
+    {
+      "image": "clouds.png",
+      "top": 0.04,
+      "height": 0.42,
+      "drift": 140,
+      "tint": "#FFFFFF",
+      "opacity": 0.9
+    },
+    {
+      "image": "mountains-far.png",
+      "top": 0.5,
+      "height": 0.46,
+      "drift": 0
+    },
+    {
+      "image": "mountains-near.png",
+      "top": 0.62,
+      "height": 0.4,
+      "drift": 0
+    }
+  ],
+  "sounds": {
+    "move": "move.m4a",
+    "select": "select.m4a",
+    "back": "back.m4a"
+  },
+  "menuFont": "Arial Rounded MT Bold",
+  "labelFont": "Arial Rounded MT Bold",
+  "bodyFont": "Avenir Next",
+  "accent": "#FFF3C4",
+  "accent2": "#F0B000",
+  "glow": "#FFE27A",
+  "accentText": "#1E3A6E",
+  "text": "#FFFFFF",
+  "dim": "#D6E6FF",
+  "panel": "#173B7A",
+  "border": "#8CC8FF",
+  "shade": "#123569",
+  "content": [
+    {
+      "label": "Base game",
+      "value": "Pokémon Shining Pearl"
+    },
+    {
+      "label": "Update",
+      "value": "None (version 1.0.0)"
+    },
+    {
+      "label": "DLC",
+      "value": "None"
+    },
+    {
+      "label": "Profile",
+      "value": "Provisional, with 60 fps settings from Brilliant Diamond"
+    }
+  ],
+  "logoWidth": 380,
+  "shadeStrength": 0.7,
+  "playlist": [
+    {
+      "file": "music-a.m4a",
+      "title": "Track A"
+    },
+    {
+      "file": "music-b.m4a",
+      "title": "Track B"
+    },
+    {
+      "file": "music-c.m4a",
+      "title": "Track C"
+    },
+    {
+      "file": "music-d.m4a",
+      "title": "Track D"
+    },
+    {
+      "file": "music-e.m4a",
+      "title": "Track E"
+    }
+  ],
+  "thinFont": "Avenir Next",
+  "titleID": "010018E011D92000",
+  "profile": "profile"
+}
