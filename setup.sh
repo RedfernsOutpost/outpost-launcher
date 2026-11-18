@@ -1,5 +1,5 @@
 #!/bin/zsh
-# One-time setup for the launcher kit. Safe to run again.
+# One-time setup for Outpost Launcher. Safe to run again.
 #   - checks Xcode (the launcher and nxnative both compile with it) and nxnative
 #   - installs vgmstream and ffmpeg with Homebrew (audio/video decoding for make_theme.py)
 #   - makes .venv with UnityPy and Pillow (art from Unity games, logo cut-outs)

@@ -5,7 +5,7 @@
 #   zsh release.sh v1.1.0 --local    # build + sign + notarize only (zips in dist/)
 #
 # One-time setup on this Mac:
-#   1. A "Developer ID Application" certificate (Xcode → Settings → Accounts → Manage Certificates → +).
+#   1. A "Developer ID Application" certificate (developer.apple.com → Certificates → +, or Xcode → Settings → Accounts → Manage Certificates → +).
 #   2. Notary login saved in the Keychain:  xcrun notarytool store-credentials nxlauncher
 #      (asks for your Apple ID, Team ID and an app-specific password from account.apple.com).
 # Nothing secret is stored in this repo: the certificate and the login stay in your Keychain.
@@ -41,6 +41,6 @@ ls -l dist
 if gh release view "$TAG" >/dev/null 2>&1; then gh release upload "$TAG" dist/*.zip --clobber
 else
   git tag "$TAG" 2>/dev/null && git push -q origin "$TAG"
-  gh release create "$TAG" dist/*.zip --title "Launchers $TAG" --notes-file .github/release-notes.md
+  gh release create "$TAG" dist/*.zip --title "Outpost Launcher $TAG" --notes-file .github/release-notes.md
 fi
 echo "published: $(gh release view "$TAG" --json url --jq .url)"

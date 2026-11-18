@@ -1660,7 +1660,7 @@ enum Placement {
         return nil
     }
 
-    /// You already chose Open Anyway for this launcher; clearing the download flag keeps macOS from checking it
+    /// macOS already checked this launcher when it first opened; clearing the download flag keeps it from checking
     /// again each time the game or its art is added inside it.
     static func clearQuarantine(_ url: URL) {
         guard getxattr(url.path, "com.apple.quarantine", nil, 0, 0, 0) >= 0 else { return }

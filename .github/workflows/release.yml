@@ -1,14 +1,11 @@
 # Builds an (unsigned) launcher for every recipe and attaches them to a GitHub release.
-# Runs when a version tag is pushed (git tag v1.1.0 && git push origin v1.1.0), or by hand from the Actions tab.
-# For signed and notarized releases, use release.sh on a Mac with a Developer ID instead (and remove the
-# tag trigger below, so the two don't upload to the same release).
+# Runs only by hand from the Actions tab (unsigned builds). Signed and notarized releases come from release.sh
+# on the maintainer's Mac.
 # The launchers hold only code, colours and layout: each one reads its game's art and music from the
 # player's own copy after INSTALL.
 name: Release launchers
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:

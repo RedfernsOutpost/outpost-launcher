@@ -45,7 +45,7 @@ cat > "$OUT.partial/Contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleExecutable</key><string>Launcher</string>
-  <key>CFBundleIdentifier</key><string>local.nxlauncher.$SLUG</string>
+  <key>CFBundleIdentifier</key><string>io.github.redfernsoutpost.launcher.$SLUG</string>
   <key>CFBundleName</key><string>$XNAME</string>
   <key>CFBundleDisplayName</key><string>$XNAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>

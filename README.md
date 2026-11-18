@@ -1,4 +1,4 @@
-# nxnative launcher kit
+# Outpost Launcher
 
 Themed, console-style launchers for games built with [nxnative](https://github.com/seedds/nxnative) on Apple silicon Macs.
 
@@ -19,13 +19,12 @@ Each launcher is a small Mac app with the game's own logo, backdrops, menu music
 
 ## Download
 
-The easiest way: get a ready-made launcher from **[Releases](https://github.com/RedfernsOutpost/nxnative-launcher-kit/releases/latest)**.
+The easiest way: get a ready-made launcher from **[Releases](https://github.com/RedfernsOutpost/outpost-launcher/releases/latest)**.
 
 1. Download the zip for your game and double-click it.
-2. Open the app. macOS says it can't verify it, because the app isn't notarized yet. Click **Done** (not Move to Trash).
-3. Right away, open **System Settings → Privacy & Security**, scroll down to **Security**, click **Open Anyway**, enter your Mac password, then click **Open**. You only do this once. (Clicked Move to Trash by mistake? Open the Trash, right-click the app, **Put Back**.)
-4. The launcher offers to move itself out of Downloads. Click **Move to Applications**.
-5. Choose **INSTALL**, pick your game file and keys, and follow the checks.
+2. Open the app. macOS asks whether you want to open an app downloaded from the internet. Click **Open**. The launchers are signed and notarized by Apple, so there's no Open Anyway step.
+3. The launcher offers to move itself out of Downloads. Click **Move to Applications**.
+4. Choose **INSTALL**, pick your game file and keys, and follow the checks.
 
 When the install finishes, press **DONE** to see the game's art and hear its music, then **PLAY**.
 
