@@ -20,7 +20,7 @@ if [[ ! -x "$BIN" || "$HERE/Launcher.swift" -nt "$BIN" ]]; then
 fi
 NAME=$(/usr/bin/plutil -extract name raw -o - "$THEME/theme.json")
 GAMEAPP=$(/usr/bin/plutil -extract gameApp raw -o - "$THEME/theme.json")
-SLUG=$(print -r -- "$NAME" | tr -cs 'A-Za-z0-9' '-' | tr 'A-Z' 'a-z' | sed 's/^-//; s/-$//')
+SLUG=$(print -r -- "$NAME" | iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null | tr -d "'\"^~" | tr -cs 'A-Za-z0-9' '-' | tr 'A-Z' 'a-z' | sed 's/^-//; s/-$//')
 XNAME=$(print -r -- "$NAME" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')   # XML-safe for Info.plist
 [[ "$GAMEAPP" == /* ]] && GAMEPATH="$GAMEAPP" || GAMEPATH="${OUT:h}/$GAMEAPP"
 
