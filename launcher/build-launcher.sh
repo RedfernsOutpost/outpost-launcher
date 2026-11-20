@@ -14,9 +14,10 @@ KIT="${HERE:h}"
 THEME="${THEME:A}"; OUT="${OUT:A}"
 BIN="$HERE/.build/Launcher"
 mkdir -p "$HERE/.build"
-if [[ ! -x "$BIN" || "$HERE/Launcher.swift" -nt "$BIN" ]]; then
+SOURCES=("$HERE"/*.swift)
+if [[ ! -x "$BIN" || -n "$(find "$HERE" -maxdepth 1 -name '*.swift' -newer "$BIN")" ]]; then
   echo "compiling launcher…"
-  xcrun swiftc -O -swift-version 5 -parse-as-library -target arm64-apple-macos14 "$HERE/Launcher.swift" -o "$BIN"
+  xcrun swiftc -O -swift-version 5 -parse-as-library -target arm64-apple-macos14 "${SOURCES[@]}" -o "$BIN"
 fi
 NAME=$(/usr/bin/plutil -extract name raw -o - "$THEME/theme.json")
 GAMEAPP=$(/usr/bin/plutil -extract gameApp raw -o - "$THEME/theme.json")

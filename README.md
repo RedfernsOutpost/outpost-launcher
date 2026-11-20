@@ -98,7 +98,8 @@ setup.sh              one-time setup (for making launchers from source)
 make_launcher.sh      recipe → theme → launcher app, in one go
 make_theme.py         reads a built game's files and writes a theme folder (art, music, sounds, theme.json)
 launcher/
-  Launcher.swift      the launcher itself (SwiftUI, one file)
+  Launcher.swift      the launcher itself (SwiftUI)
+  Controllers.swift   controller list, button tester, pairing help and controller options
   build-launcher.sh   compiles it and wraps a theme folder into an .app
 recipes/<game>/       theme.json (+ an nxnative profile where one helps)
 tools/

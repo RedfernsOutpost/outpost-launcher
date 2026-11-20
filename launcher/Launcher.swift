@@ -208,6 +208,9 @@ final class Model: ObservableObject {
     @Published var launching = false
     @Published var trackIndex = 0
     @Published var artBusy = false
+    /// Set by a row's action to open a panel (the view owns the panel state).
+    @Published var requestPanel: String?
+    private var padTimer: Timer?
     lazy var installer = Installer(self)
     /// Set by the view: rebuild the whole menu from the theme files (after the art step wrote new ones).
     var reload: () -> Void = {}
@@ -247,6 +250,7 @@ final class Model: ObservableObject {
         layerImages = th.layers.map { NSImage(contentsOf: r.appendingPathComponent($0.image)) }
         audio = Audio(theme: th, res: r)
         locateGame()
+        watchPads()
     }
 
     /// Where the game app lives: inside this launcher (Contents/Game), next to it, or where the player pointed us.
@@ -314,6 +318,16 @@ final class Model: ObservableObject {
               Row(id: "showApp", label: "Show game app in Finder", note: "The nxnative app this launcher starts.", tab: "TOOLS", kind: .action { [weak self] in if let u = self?.gameURL { NSWorkspace.shared.activateFileViewerSelecting([u]) } }, def: "", game: false),
               Row(id: "getArt", label: "Get art and music from the game", note: "Reads the logo, pictures, music and menu sounds from your installed game again.", tab: "TOOLS", kind: .action { [weak self] in self?.refreshArt() }, def: "", game: false),
               Row(id: "reset", label: "Reset game settings to tested defaults", note: "Puts every game setting back to what nxnative tested.", tab: "TOOLS", kind: .action { [weak self] in self?.resetDefaults() }, def: "", game: false)]
+        // Controllers: what's connected (top of CONTROLS), tools, then nxnative switches the game's settings don't cover
+        let gameEnvs = Set(r.filter { $0.game }.map { $0.id })
+        let padActions = [
+            Row(id: "padTest", label: "Test buttons", note: "Press buttons and move the sticks to see what the game will get.", tab: "CONTROLS", kind: .action { [weak self] in self?.requestPanel = "PADTEST" }, def: "", game: false),
+            Row(id: "padHelp", label: "Pairing help", note: "How to connect Xbox, PlayStation, Switch, Switch 2 and 8BitDo controllers.", tab: "CONTROLS", kind: .action { [weak self] in self?.requestPanel = "PAIRHELP" }, def: "", game: false),
+            Row(id: "padRemap", label: "Remap buttons", note: "Opens macOS's Game Controllers settings. Swap any buttons (like A and B) for each controller; games and this menu follow it.", tab: "CONTROLS", kind: .action { NSWorkspace.shared.open(Pads.remapURL) }, def: "", game: false)]
+        let padSwitches = PadOptions.all.filter { !gameEnvs.contains($0.env) }.map {
+            Row(id: PadOptions.key($0.env), label: $0.label, note: $0.note, tab: "CONTROLS", kind: .toggle(on: "1", off: "0"), def: $0.def, game: false)
+        }
+        r = padRows() + padActions + r + padSwitches
         // Installed content: names from the theme, plus what the game app itself reports
         var info: [(String, String, String)] = []
         for (k, c) in theme.content.enumerated() { info.append(("content\(k)", c["label"] ?? "", c["value"] ?? "")) }
@@ -339,6 +353,32 @@ final class Model: ObservableObject {
                 values[row.id] = (v as? Bool).map { $0 ? "1" : "0" } ?? (v as? Double).map { String($0) } ?? row.def
             }
         }
+    }
+
+    /// One info row per connected controller (ids start with "pad"; values hold the connection and battery).
+    func padRows() -> [Row] {
+        Pads.list().map { p in
+            values[p.id] = p.detail
+            return Row(id: p.id, label: p.name, note: p.note, tab: "CONTROLS", kind: .info, def: "", game: false)
+        }
+    }
+    func refreshPads() {
+        guard !rows.isEmpty else { return }
+        let isPad: (Row) -> Bool = { $0.id.hasPrefix("pad") && { if case .info = $0.kind { return true }; return false }($0) }
+        let fresh = padRows()
+        var r = rows
+        let at = r.firstIndex(where: isPad) ?? 0
+        r.removeAll(where: isPad)
+        r.insert(contentsOf: fresh, at: min(at, r.count))
+        rows = r
+    }
+    func watchPads() {
+        for n in [Notification.Name.GCControllerDidConnect, .GCControllerDidDisconnect] {
+            NotificationCenter.default.addObserver(forName: n, object: nil, queue: .main) { [weak self] _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.refreshPads() }
+            }
+        }
+        padTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.refreshPads() }   // battery, raw pads
     }
 
     func set(_ row: Row, _ v: String) {
@@ -400,7 +440,9 @@ final class Model: ObservableObject {
         launching = true; status = "Starting…"
         audio.play(theme.sounds["start"] != nil ? "start" : "select"); audio.fade(to: 0, over: 1.0)
         let cfg = NSWorkspace.OpenConfiguration()
-        cfg.environment = ["DM_LAUNCHER": "0"]    // skip the game's own settings window
+        var env = ["DM_LAUNCHER": "0"]    // skip the game's own settings window
+        env.merge(PadOptions.environment(skip: Set(rows.filter { $0.game }.map { $0.id }))) { a, _ in a }
+        cfg.environment = env
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
             NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, err in
                 DispatchQueue.main.async {
@@ -420,10 +462,13 @@ enum Input { case up, down, left, right, ok, back, prevTab, nextTab }
 
 final class InputHub: ObservableObject {
     var handler: ((Input) -> Void)?
+    /// True when the last input came from a controller (false: keyboard). The button tester uses it.
+    private(set) var lastFromPad = false
     private var monitor: Any?
     init() {
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
-            guard let self, let h = self.handler else { return e }
+            guard let self, let h0 = self.handler else { return e }
+            let h: (Input) -> Void = { [weak self] i in self?.lastFromPad = false; h0(i) }
             switch e.keyCode {
             case 126: h(.up); case 125: h(.down); case 123: h(.left); case 124: h(.right)
             case 36, 76, 49: h(.ok); case 53, 51: h(.back)
@@ -443,13 +488,14 @@ final class InputHub: ObservableObject {
     deinit { if let m = monitor { NSEvent.removeMonitor(m) } }
     private func attach(_ c: GCController) {
         guard let p = c.extendedGamepad else { return }
-        func on(_ b: GCControllerButtonInput, _ i: Input) { b.pressedChangedHandler = { [weak self] _, _, pressed in if pressed { self?.handler?(i) } } }
+        func on(_ b: GCControllerButtonInput, _ i: Input) { b.pressedChangedHandler = { [weak self] _, _, pressed in if pressed { self?.lastFromPad = true; self?.handler?(i) } } }
         on(p.dpad.up, .up); on(p.dpad.down, .down); on(p.dpad.left, .left); on(p.dpad.right, .right)
         on(p.buttonA, .ok); on(p.buttonB, .back); on(p.leftShoulder, .prevTab); on(p.rightShoulder, .nextTab)
         var stickReady = true
         p.leftThumbstick.valueChangedHandler = { [weak self] _, x, y in
             if abs(x) < 0.3 && abs(y) < 0.3 { stickReady = true; return }
             guard stickReady else { return }; stickReady = false
+            self?.lastFromPad = true
             self?.handler?(abs(y) > abs(x) ? (y > 0 ? .up : .down) : (x > 0 ? .right : .left))
         }
     }
@@ -488,6 +534,8 @@ struct RootView: View {
             mainMenu
             if panel == "MOVE" { MovePanel(t: t, close: { closePanel() }).transition(.opacity) }
             else if panel == "INSTALL" { InstallPanel(m: m, t: t, close: { closePanel() }).transition(.opacity) }
+            else if panel == "PADTEST" { PadTestPanel(t: t, close: { backToControls() }).transition(.opacity) }
+            else if panel == "PAIRHELP" { PairHelpPanel(t: t, close: { backToControls() }).transition(.opacity) }
             else if panel != nil { settingsPanel.transition(.opacity) } else { statusBar }
             // Music controls stay reachable everywhere (bottom right, below any panel).
             VStack { Spacer(); HStack { Spacer(); musicControls } }.padding(.trailing, 60).padding(.bottom, panel == nil ? 36 : 22)
@@ -497,6 +545,11 @@ struct RootView: View {
         .ignoresSafeArea()
         .foregroundStyle(Color(hex: t.text))
         .onDisappear { slideTimer?.invalidate() }
+        .onReceive(m.$requestPanel) { p in
+            guard let p else { return }
+            m.requestPanel = nil; m.audio.play("select")
+            withAnimation(.easeOut(duration: 0.15)) { panel = p }
+        }
         .onAppear {
             if panel?.uppercased() == "INSTALL" { m.installer.runChecks() }
             if let p = panel?.uppercased() { panel = p; tab = (p == "TOOLS" || p == "CONTENT") ? p : (visibleTabs.first ?? "GAME"); if let tb = ENV["LAUNCHER_TAB"]?.uppercased(), visibleTabs.contains(tb) { tab = tb } }
@@ -781,6 +834,9 @@ struct RootView: View {
             return
         }
         if panel == "INSTALL" { if i == .back && !m.installer.building { closePanel() }; return }
+        // The tester shows every button, so a controller's B doesn't close it (holding it does, in the panel).
+        if panel == "PADTEST" { if i == .back && !input.lastFromPad { backToControls() }; return }
+        if panel == "PAIRHELP" { if i == .ok { NSWorkspace.shared.open(Pads.bluetoothURL) } else if i == .back { backToControls() }; return }
         if panel == nil {
             switch i {
             case .up: menuIndex = (menuIndex + menu.count - 1) % menu.count; m.audio.play("move")
@@ -807,6 +863,7 @@ struct RootView: View {
     }
 
     func switchTab(to tb: String) { if tb != tab { tab = tb; rowIndex = 0; m.audio.play("move") } }
+    func backToControls() { withAnimation(.easeOut(duration: 0.15)) { panel = "SETTINGS"; tab = "CONTROLS" }; m.audio.play("back") }
     func closePanel() { withAnimation(.easeOut(duration: 0.15)) { panel = nil }; m.audio.play("back") }
 
     func activate() {
