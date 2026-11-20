@@ -1,7 +1,7 @@
 // Themed game launcher (v2, Dusklight-style) for nxnative Mac apps.
 // One source for every game; each launcher bundle carries theme.json + its own art and sounds
-// (taken from the player's own copy of the game). Play starts the game app with DM_LAUNCHER=0,
-// so its plain settings window is skipped; Settings edits the same saved choices the game app
+// (taken from the player's own copy of the game). Play starts the game app with nxnative's own
+// settings window turned off ("window.show" = false in its preferences); Settings edits the same saved choices the game app
 // uses (its preferences domain, keys "launcher.<ENV>").
 //
 // Self-tests (no screen capture): LAUNCHER_SNAPSHOT=/x.png draws the real window into a file
@@ -188,6 +188,8 @@ struct Row: Identifiable {
     enum Kind { case choice([(String, String)]), toggle(on: String, off: String), range(min: Double, max: Double, step: Double), action(() -> Void), info }
     let id: String, label: String, note: String, tab: String, kind: Kind, def: String
     var game: Bool   // true: a game setting (nxnative saved choice); false: launcher setting or action
+    /// Rows backed by files (cheats, mods): called with the new value instead of storing it in the launcher's defaults.
+    var apply: ((String) -> Void)? = nil
 }
 
 final class Model: ObservableObject {
@@ -210,6 +212,9 @@ final class Model: ObservableObject {
     @Published var artBusy = false
     /// Set by a row's action to open a panel (the view owns the panel state).
     @Published var requestPanel: String?
+    @Published var listPanel: ListSpec?
+    @Published var message: MessageSpec?
+    var gameObserver: NSObjectProtocol?
     private var padTimer: Timer?
     lazy var installer = Installer(self)
     /// Set by the view: rebuild the whole menu from the theme files (after the art step wrote new ones).
@@ -232,7 +237,7 @@ final class Model: ObservableObject {
         }
     }
 
-    static let tabs = ["GAME", "DISPLAY", "CONTROLS", "PERFORMANCE", "AUDIO", "CONTENT", "TOOLS"]
+    static let tabs = ["GAME", "DISPLAY", "CONTROLS", "PERFORMANCE", "AUDIO", "SAVES", "MODS", "CONTENT", "TOOLS"]
     static let tabOf: [String: String] = [
         "DM_LANG": "GAME", "DM_OPMODE": "GAME", "DM_FPS_TARGET": "GAME", "DM_FPS_HOLD": "GAME",
         "DM_RENDER_SCALE": "DISPLAY", "DM_DYNAMIC_RESOLUTION": "DISPLAY", "DM_FULLSCREEN": "DISPLAY",
@@ -312,7 +317,7 @@ final class Model: ObservableObject {
               Row(id: "musicVolume", label: "Music volume", note: "Volume of the menu music.", tab: "AUDIO", kind: .range(min: 0, max: 1, step: 0.05), def: "0.5", game: false),
               Row(id: "soundsOn", label: "Menu sounds", note: "The game's cursor and confirm sounds in this menu.", tab: "AUDIO", kind: .toggle(on: "1", off: "0"), def: "1", game: false),
               Row(id: "soundVolume", label: "Sound volume", note: "Volume of the menu sounds.", tab: "AUDIO", kind: .range(min: 0, max: 1, step: 0.05), def: "0.5", game: false),
-              Row(id: "keepOpen", label: "Keep launcher open", note: "Leave this menu open after the game starts.", tab: "TOOLS", kind: .toggle(on: "1", off: "0"), def: "0", game: false),
+              Row(id: "afterGame", label: "When the game closes", note: "Come back to this menu (with your play time, and a notice if the game crashed), or close the launcher too.", tab: "TOOLS", kind: .choice([("back", "Come back here"), ("quit", "Close launcher")]), def: "back", game: false),
               Row(id: "openSaves", label: "Open save folder", note: "Your save files, in Finder.", tab: "TOOLS", kind: .action { [weak self] in if let s = self { NSWorkspace.shared.open(s.saveFolder) } }, def: "", game: false),
               Row(id: "openLog", label: "Open the game's log", note: "Useful when something goes wrong.", tab: "TOOLS", kind: .action { [weak self] in if let s = self { NSWorkspace.shared.open(s.logFile) } }, def: "", game: false),
               Row(id: "showApp", label: "Show game app in Finder", note: "The nxnative app this launcher starts.", tab: "TOOLS", kind: .action { [weak self] in if let u = self?.gameURL { NSWorkspace.shared.activateFileViewerSelecting([u]) } }, def: "", game: false),
@@ -327,7 +332,7 @@ final class Model: ObservableObject {
         let padSwitches = PadOptions.all.filter { !gameEnvs.contains($0.env) }.map {
             Row(id: PadOptions.key($0.env), label: $0.label, note: $0.note, tab: "CONTROLS", kind: .toggle(on: "1", off: "0"), def: $0.def, game: false)
         }
-        r = padRows() + padActions + r + padSwitches
+        r = padRows() + padActions + r + padSwitches + saveRows() + cheatRows() + modRows()
         // Installed content: names from the theme, plus what the game app itself reports
         var info: [(String, String, String)] = []
         for (k, c) in theme.content.enumerated() { info.append(("content\(k)", c["label"] ?? "", c["value"] ?? "")) }
@@ -338,6 +343,8 @@ final class Model: ObservableObject {
             if let d = (try? gameURL!.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate {
                 info.append(("detBuilt", "App built", d.formatted(date: .abbreviated, time: .shortened)))
             }
+            info.append(("detPlayed", "Last played", lastPlayed.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "never"))
+            info.append(("detTime", "Total play time", Model.duration(totalPlay)))
         }
         for (id, l, v) in info {
             r.append(Row(id: id, label: l, note: id.hasPrefix("det") ? "Read from the game app itself." : "Installed content packed into the game app.", tab: "CONTENT", kind: .info, def: "", game: false))
@@ -345,14 +352,46 @@ final class Model: ObservableObject {
         }
         if recipe == nil || gameURL == nil { r.removeAll { $0.id == "getArt" } }
         rows = r
-        for row in rows where row.def != "" {
+        for row in rows where row.def != "" && row.apply == nil {
             if row.game {
                 values[row.id] = (CFPreferencesCopyAppValue("launcher.\(row.id)" as CFString, bundleID as CFString) as? String) ?? row.def
             } else {
                 let v = UserDefaults.standard.object(forKey: row.id)
-                values[row.id] = (v as? Bool).map { $0 ? "1" : "0" } ?? (v as? Double).map { String($0) } ?? row.def
+                values[row.id] = (v as? String) ?? (v as? Bool).map { $0 ? "1" : "0" } ?? (v as? Double).map { String($0) } ?? row.def
             }
         }
+    }
+
+    /// Rebuild every row (after a file-backed change), keeping the status line.
+    func reloadRows() { let st = status; locateGame(); status = st }
+
+    func saveRows() -> [Row] {
+        guard !titleID.isEmpty else { return [] }
+        let nick = UserDefaults.standard.string(forKey: "playerName") ?? ""
+        let cloud = cloudFolder()
+        var r: [Row] = [
+            Row(id: "profile", label: "Save profile", note: "Each profile keeps its own save, for example one per person. Main is the game's usual save (the one cloud saves sync).", tab: "SAVES",
+                kind: .choice([("", "Main")] + profiles.map { ($0, $0) }), def: "", game: false),
+            Row(id: "profileNew", label: "New profile", note: "Makes a new save profile, empty or as a copy of this one.", tab: "SAVES", kind: .action { [weak self] in self?.newProfile() }, def: "", game: false),
+            Row(id: "playerName", label: nick.isEmpty ? "Player name: Player" : "Player name: \(nick)", note: "The name games show for you (up to 10 letters).", tab: "SAVES", kind: .action { [weak self] in
+                guard let self, let n = self.prompt("Player name", "The name games show for you.", nick, limit: 10) else { return }
+                UserDefaults.standard.set(n, forKey: "playerName"); self.reloadRows() }, def: "", game: false),
+            Row(id: "autoBackup", label: "Back up before Play", note: "Copies the save before each Play when it changed since the last backup. The newest 10 are kept for each profile.", tab: "SAVES", kind: .toggle(on: "1", off: "0"), def: "1", game: false),
+            Row(id: "backupNow", label: "Back up now", note: "Copies the current save of this profile.", tab: "SAVES", kind: .action { [weak self] in
+                guard let self else { return }
+                self.status = self.backupSave(reason: "Backed up by hand", force: true) != nil ? "Save backed up." : (self.status.isEmpty ? "There's no save to back up yet." : self.status) }, def: "", game: false),
+            Row(id: "restore", label: "Restore a backup", note: "Pick an earlier save to go back to. The current one is backed up first, so this can be undone.", tab: "SAVES", kind: .action { [weak self] in self?.showBackups() }, def: "", game: false),
+            Row(id: "importSave", label: "Import a save", note: "Use a save exported from another tool (like JKSV) or an emulator: a folder or a .zip. The current save is backed up first.", tab: "SAVES", kind: .action { [weak self] in self?.chooseSaveToImport() }, def: "", game: false),
+            Row(id: "cloud", label: cloud.isEmpty ? "Cloud saves: off" : "Cloud saves: \((cloud as NSString).lastPathComponent)", note: "Syncs the Main save through a folder in iCloud Drive, to your other Macs or the iPhone app. If both saves changed, the game asks which one to keep.", tab: "SAVES", kind: .action { [weak self] in self?.chooseCloudFolder() }, def: "", game: false)]
+        if !cloud.isEmpty {
+            r.append(Row(id: "cloudOff", label: "Turn off cloud saves", note: "Stops syncing. The save on this Mac and the copy in the folder stay as they are.", tab: "SAVES", kind: .action { [weak self] in
+                self?.setGamePref("cloudSaves.folder", nil); self?.status = "Cloud saves off."; self?.reloadRows() }, def: "", game: false))
+        }
+        r.append(Row(id: "openBackups", label: "Open backups folder", note: "This launcher's backups, one folder each, by profile.", tab: "SAVES", kind: .action { [weak self] in
+            guard let self else { return }
+            try? FileManager.default.createDirectory(at: self.backupsFolder, withIntermediateDirectories: true); NSWorkspace.shared.open(self.backupsFolder) }, def: "", game: false))
+        values["profile"] = profile
+        return r
     }
 
     /// One info row per connected controller (ids start with "pad"; values hold the connection and battery).
@@ -383,12 +422,18 @@ final class Model: ObservableObject {
 
     func set(_ row: Row, _ v: String) {
         values[row.id] = v
+        if let a = row.apply { a(v); return }
         if row.game {
             let app = bundleID as CFString
             CFPreferencesSetAppValue("launcher.\(row.id)" as CFString, v == row.def ? nil : v as CFString, app)  // only non-defaults are kept
             CFPreferencesAppSynchronize(app)
         } else {
-            if case .range = row.kind { UserDefaults.standard.set(Double(v) ?? 0, forKey: row.id) } else { UserDefaults.standard.set(v == "1", forKey: row.id) }
+            switch row.kind {
+            case .range: UserDefaults.standard.set(Double(v) ?? 0, forKey: row.id)
+            case .choice: UserDefaults.standard.set(v, forKey: row.id)
+            default: UserDefaults.standard.set(v == "1", forKey: row.id)
+            }
+            if row.id == "profile" { reloadRows() }
             audio.applyVolume()
         }
     }
@@ -433,23 +478,37 @@ final class Model: ObservableObject {
 
     var saveFolder: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/nxnative/\(titleID)") }
     var logFile: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/nxnative/\(titleID).log") }
-    var keepOpen: Bool { UserDefaults.standard.bool(forKey: "keepOpen") }
 
     func play() {
         guard let url = gameURL, !launching else { audio.play("back"); return }
+        if gameRunning { NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.activate(); return }
         launching = true; status = "Starting…"
         audio.play(theme.sounds["start"] != nil ? "start" : "select"); audio.fade(to: 0, over: 1.0)
+        quietGameWindow()
+        if (values["autoBackup"] ?? "1") == "1" { backupSave(reason: "Before playing") }
         let cfg = NSWorkspace.OpenConfiguration()
-        var env = ["DM_LAUNCHER": "0"]    // skip the game's own settings window
+        var env: [String: String] = [:]
         env.merge(PadOptions.environment(skip: Set(rows.filter { $0.game }.map { $0.id }))) { a, _ in a }
+        env.merge(profileEnvironment()) { a, _ in a }
+        env.merge(modEnvironment()) { a, _ in a }
+        if let nick = UserDefaults.standard.string(forKey: "playerName"), !nick.isEmpty { env["DM_NICK"] = nick }
         cfg.environment = env
+        let started = Date()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, err in
+            NSWorkspace.shared.openApplication(at: url, configuration: cfg) { app, err in
                 DispatchQueue.main.async {
                     self.launching = false
-                    if let err { self.status = "Couldn't start the game: \(err.localizedDescription)"; return }
+                    if let err { self.status = "Couldn't start the game: \(err.localizedDescription)"; self.audio.applyVolume(); return }
                     self.status = ""
-                    if !self.keepOpen { NSApp.terminate(nil) }
+                    // Stay out of the way while the game runs, and come back when it ends (play time, crash notice).
+                    NSApp.hide(nil)
+                    guard let app else { return }
+                    if let o = self.gameObserver { NSWorkspace.shared.notificationCenter.removeObserver(o) }
+                    self.gameObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { n in
+                        guard let ended = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication, ended.processIdentifier == app.processIdentifier else { return }
+                        if let o = self.gameObserver { NSWorkspace.shared.notificationCenter.removeObserver(o); self.gameObserver = nil }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.gameEnded(started: started) }   // the log's last line lands as it exits
+                    }
                 }
             }
         }
@@ -518,6 +577,9 @@ struct RootView: View {
     @State var slideTimer: Timer?
     @State var tab = "GAME"
     @State var rowIndex = 0
+    @State var listIndex = 0
+    @State var messageIndex = 0
+    @State var returnPanel = "SETTINGS"   // where LIST / MESSAGE / the controller panels go back to
     @State var slide = 0
     @State var zoom = false
     var t: Theme { m.theme }
@@ -536,6 +598,8 @@ struct RootView: View {
             else if panel == "INSTALL" { InstallPanel(m: m, t: t, close: { closePanel() }).transition(.opacity) }
             else if panel == "PADTEST" { PadTestPanel(t: t, close: { backToControls() }).transition(.opacity) }
             else if panel == "PAIRHELP" { PairHelpPanel(t: t, close: { backToControls() }).transition(.opacity) }
+            else if panel == "LIST", let spec = m.listPanel { ListPanel(t: t, spec: spec, index: $listIndex, choose: { pickListItem($0) }, close: { backFromOverlay() }).transition(.opacity) }
+            else if panel == "MESSAGE", let spec = m.message { MessagePanel(t: t, spec: spec, index: $messageIndex, press: { pressMessage($0) }).transition(.opacity) }
             else if panel != nil { settingsPanel.transition(.opacity) } else { statusBar }
             // Music controls stay reachable everywhere (bottom right, below any panel).
             VStack { Spacer(); HStack { Spacer(); musicControls } }.padding(.trailing, 60).padding(.bottom, panel == nil ? 36 : 22)
@@ -548,6 +612,10 @@ struct RootView: View {
         .onReceive(m.$requestPanel) { p in
             guard let p else { return }
             m.requestPanel = nil; m.audio.play("select")
+            if p == "LIST" { listIndex = 0 }
+            if p == "MESSAGE" { messageIndex = 0 }
+            if let cur = panel, cur != "LIST", cur != "MESSAGE", cur != "PADTEST", cur != "PAIRHELP" { returnPanel = cur }
+            if panel == nil { returnPanel = "" }   // e.g. the crash notice over the main menu
             withAnimation(.easeOut(duration: 0.15)) { panel = p }
         }
         .onAppear {
@@ -571,6 +639,7 @@ struct RootView: View {
             }
             startSlideshow()
             selfSnapshotIfAsked()
+            if ENV["LAUNCHER_SELFTEST"] == "saves" { m.selfTestSaves() }
         }
     }
 
@@ -740,9 +809,9 @@ struct RootView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     ForEach(visibleTabs, id: \.self) { tb in
-                        Text(tb).font(font(t.labelFont, 21, .heavy)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
+                        Text(tb).font(font(t.labelFont, visibleTabs.count > 7 ? 17 : 21, .heavy)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
                             .foregroundStyle(tb == tab ? Color(hex: t.text) : Color(hex: t.dim).opacity(0.75))
-                            .padding(.horizontal, 18).frame(height: 62)
+                            .padding(.horizontal, visibleTabs.count > 7 ? 12 : 18).frame(height: 62)
                             .background(tb == tab ? Color(hex: t.border).opacity(0.18) : .clear)
                             .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: t.border)).frame(height: tb == tab ? 4 : 0) }
                             .contentShape(Rectangle())
@@ -837,6 +906,26 @@ struct RootView: View {
         // The tester shows every button, so a controller's B doesn't close it (holding it does, in the panel).
         if panel == "PADTEST" { if i == .back && !input.lastFromPad { backToControls() }; return }
         if panel == "PAIRHELP" { if i == .ok { NSWorkspace.shared.open(Pads.bluetoothURL) } else if i == .back { backToControls() }; return }
+        if panel == "LIST", let spec = m.listPanel {
+            switch i {
+            case .up: if !spec.items.isEmpty { listIndex = (listIndex + spec.items.count - 1) % spec.items.count; m.audio.play("move") }
+            case .down: if !spec.items.isEmpty { listIndex = (listIndex + 1) % spec.items.count; m.audio.play("move") }
+            case .ok: pickListItem(listIndex)
+            case .back: backFromOverlay()
+            default: break
+            }
+            return
+        }
+        if panel == "MESSAGE", let spec = m.message {
+            switch i {
+            case .left, .up: messageIndex = (messageIndex + spec.buttons.count - 1) % spec.buttons.count; m.audio.play("move")
+            case .right, .down: messageIndex = (messageIndex + 1) % spec.buttons.count; m.audio.play("move")
+            case .ok: pressMessage(messageIndex)
+            case .back: pressMessage(spec.buttons.count - 1)   // the last button is the way back (Cancel / OK)
+            default: break
+            }
+            return
+        }
         if panel == nil {
             switch i {
             case .up: menuIndex = (menuIndex + menu.count - 1) % menu.count; m.audio.play("move")
@@ -863,6 +952,24 @@ struct RootView: View {
     }
 
     func switchTab(to tb: String) { if tb != tab { tab = tb; rowIndex = 0; m.audio.play("move") } }
+    /// Back from a list or message to the panel it was opened from (or the main menu).
+    func backFromOverlay() {
+        m.audio.play("back")
+        withAnimation(.easeOut(duration: 0.15)) { panel = returnPanel.isEmpty ? nil : returnPanel }
+    }
+    func pickListItem(_ i: Int) {
+        guard let spec = m.listPanel, spec.items.indices.contains(i) else { return }
+        m.audio.play("select")
+        withAnimation(.easeOut(duration: 0.15)) { panel = returnPanel.isEmpty ? nil : returnPanel }
+        spec.choose(i)   // may open a message (a confirmation) right away
+    }
+    func pressMessage(_ i: Int) {
+        guard let spec = m.message, spec.buttons.indices.contains(i) else { return }
+        m.audio.play(i == spec.buttons.count - 1 ? "back" : "select")
+        withAnimation(.easeOut(duration: 0.15)) { panel = returnPanel.isEmpty ? nil : returnPanel }
+        m.message = nil
+        spec.buttons[i].1()
+    }
     func backToControls() { withAnimation(.easeOut(duration: 0.15)) { panel = "SETTINGS"; tab = "CONTROLS" }; m.audio.play("back") }
     func closePanel() { withAnimation(.easeOut(duration: 0.15)) { panel = nil }; m.audio.play("back") }
 
@@ -1428,14 +1535,9 @@ final class Installer: ObservableObject {
                 }
                 if proc.terminationStatus == 0 {
                     self.fraction = 1; self.stage = "Installed"; self.model?.locateGame()
-                    // Like the rest of the setup: the launcher is the only menu, so turn off nxnative's own window.
-                    if let app = self.model?.gameURL, let tid = (NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist"))?["DMTitleID"] as? String) {
-                        let dir = self.home.appendingPathComponent("Library/Application Support/nxnative/\(tid)")
-                        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                        let env = dir.appendingPathComponent("env.txt")
-                        let text = (try? String(contentsOf: env, encoding: .utf8)) ?? ""
-                        if !text.contains("DM_LAUNCHER=") { try? (text + (text.isEmpty || text.hasSuffix("\n") ? "" : "\n") + "DM_LAUNCHER=0\n").write(to: env, atomically: true, encoding: .utf8) }
-                    }
+                    // Like the rest of the setup: the launcher is the only menu, so turn off nxnative's own window
+                    // (its cloud-save question still comes when it's needed).
+                    self.model?.quietGameWindow()
                     self.addArt { art in
                         // nxnative's work folder is only needed during the build (it can be many GB).
                         if ENV["LAUNCHER_KEEP_BUILD_FILES"] != "1" && (try? FileManager.default.removeItem(at: self.workDir)) != nil {
