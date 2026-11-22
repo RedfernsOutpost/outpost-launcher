@@ -28,6 +28,10 @@ The easiest way: get a ready-made launcher from **[Releases](https://github.com/
 
 When the install finishes, press **DONE** to see the game's art and hear its music, then **PLAY**.
 
+## Your own button layout
+
+**Settings → Controls → Map buttons** sets a layout with the controller: pick a Switch button, press the button you want for it. It's shared by every Outpost Launcher and passed to the game as `DM_PAD_MAP`. Stock nxnative doesn't read that option yet (the launcher says so); a small patch for nxnative's controller code adds it. Until then, **Remap buttons** opens macOS's own controller settings.
+
 ## Games with recipes
 
 | recipe | game | title ID |
