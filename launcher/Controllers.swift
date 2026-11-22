@@ -70,6 +70,11 @@ enum Pads {
             out.append(PadInfo(id: "pad\(i)", name: name, detail: parts.isEmpty ? "Connected" : parts.joined(separator: " · "),
                                note: "\(c.productCategory), player \(i + 1) when the game starts. \(layout) Choose Test buttons to try it."))
         }
+        for h in hid where h.gamepad && isEkipad(h) && !matched.contains(h.product) {
+            matched.insert(h.product)
+            out.append(PadInfo(id: "padeki\(out.count)", name: "Ekipad (iPhone)", detail: "Virtual pad",
+                               note: "Your iPhone, through Ekipad's virtual gamepad. The launcher gives the game its button layout at Play (A right, B bottom, X top, Y left, as on a Switch), with analog sticks. This menu and Test buttons don't respond to it: use the keyboard or another pad here."))
+        }
         for h in hid where h.gamepad && !h.product.isEmpty && !matched.contains(h.product) {
             matched.insert(h.product)
             let conn = connection(h.transport)
@@ -88,6 +93,16 @@ enum Pads {
                                note: "Turn on a controller and connect it over Bluetooth or USB; it shows up here. See Pairing help for each kind."))
         }
         return out
+    }
+
+    /// Ekipad's generic virtual pad (VID 1209, "Ekipad Pad N"): read by the game as a raw HID gamepad.
+    static func isEkipad(_ h: HIDDevice) -> Bool { h.product.hasPrefix("Ekipad") || (h.vendor == 0x1209 && h.product.localizedCaseInsensitiveContains("ekipad")) }
+    /// Ekipad numbers its buttons Switch-style (1 A, 2 B, 3 X, 4 Y, 5/6 L/R, 7/8 ZL/ZR, 9/10 stick clicks, 11 +, 12 -);
+    /// nxnative's raw-pad default is 8BitDo's numbering, so the game gets this map while an Ekipad pad is connected
+    /// (DM_HID_MAP applies to every raw pad; another raw pad at the same time would follow it too).
+    static func ekipadEnvironment() -> [String: String] {
+        guard hidDevices().contains(where: { $0.gamepad && isEkipad($0) }) else { return [:] }
+        return ["DM_HID_MAP": "A=1,B=2,X=3,Y=4,L=5,R=6,ZL=7,ZR=8,LS=9,RS=10,PLUS=11,MINUS=12"]
     }
 
     static let remapURL = URL(string: "x-apple.systempreferences:com.apple.Game-Controller-Settings.extension")!
@@ -298,6 +313,7 @@ struct PairHelpPanel: View {
         ("Switch Pro Controller, Joy-Con", "Hold the small sync button until the lights run back and forth, then click Connect in Bluetooth settings. A Pro Controller also works over USB. Their buttons match their labels in games."),
         ("Switch 2 (Joy-Con 2, Pro Controller 2)", "They don't appear in Bluetooth settings. Turn on Switch 2 controllers in this tab, start the game, then hold the controller's Sync button until its lights sweep. After that, pressing any button connects it."),
         ("8BitDo", "Use Bluetooth: put the controller in its Switch or Bluetooth mode (see its manual), hold Pair for about 3 seconds, then click Connect in Bluetooth settings. The USB adapter's PC mode shows up on a Mac as a keyboard and mouse, so games can't use it."),
+        ("Ekipad (iPhone as a controller)", "Open Ekipad Host on the Mac and Ekipad on the iPhone, and choose its virtual gamepad (the generic style, not keyboard). It shows up as Ekipad at the top of this tab, and the launcher sets its buttons for the game when you press Play."),
         ("Something not working?", "Check it here first: it should appear at the top of the Controls tab and light up in Test buttons. If buttons feel swapped, use Remap buttons (macOS's controller settings). To quit a game with a controller, hold its Home button for 2 seconds.")]
 
     var body: some View {

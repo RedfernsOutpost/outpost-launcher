@@ -491,6 +491,7 @@ final class Model: ObservableObject {
         env.merge(PadOptions.environment(skip: Set(rows.filter { $0.game }.map { $0.id }))) { a, _ in a }
         env.merge(profileEnvironment()) { a, _ in a }
         env.merge(modEnvironment()) { a, _ in a }
+        env.merge(Pads.ekipadEnvironment()) { a, _ in a }
         if let nick = UserDefaults.standard.string(forKey: "playerName"), !nick.isEmpty { env["DM_NICK"] = nick }
         cfg.environment = env
         let started = Date()
