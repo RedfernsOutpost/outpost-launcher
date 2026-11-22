@@ -244,7 +244,7 @@ extension Model {
         NSApp.activate(ignoringOtherApps: true)
         guard p.runModal() == .OK, let u = p.url else { return }
         setGamePref("cloudSaves.folder", u.path as CFString)
-        status = "Cloud saves on, through \(u.lastPathComponent). If both saves changed, the game asks which to keep."
+        status = "Cloud saves on, through \(Model.folderLabel(u.path)). If both saves changed, the game asks which to keep."
         reloadRows()
     }
     func cloudFolder() -> String { (CFPreferencesCopyAppValue("cloudSaves.folder" as CFString, bundleID as CFString) as? String) ?? "" }

@@ -362,6 +362,14 @@ final class Model: ObservableObject {
         }
     }
 
+    /// "iCloud Drive" for the iCloud Drive root (com~apple~CloudDocs), "iCloud Drive › X" inside it, else the folder's name.
+    static func folderLabel(_ path: String) -> String {
+        let marker = "com~apple~CloudDocs"
+        guard let r = path.range(of: marker) else { return (path as NSString).lastPathComponent }
+        let rest = path[r.upperBound...].split(separator: "/")
+        return rest.isEmpty ? "iCloud Drive" : "iCloud Drive › \(rest.last!)"
+    }
+
     /// Rebuild every row (after a file-backed change), keeping the status line.
     func reloadRows() { let st = status; locateGame(); status = st }
 
@@ -382,7 +390,7 @@ final class Model: ObservableObject {
                 self.status = self.backupSave(reason: "Backed up by hand", force: true) != nil ? "Save backed up." : (self.status.isEmpty ? "There's no save to back up yet." : self.status) }, def: "", game: false),
             Row(id: "restore", label: "Restore a backup", note: "Pick an earlier save to go back to. The current one is backed up first, so this can be undone.", tab: "SAVES", kind: .action { [weak self] in self?.showBackups() }, def: "", game: false),
             Row(id: "importSave", label: "Import a save", note: "Use a save exported from another tool (like JKSV) or an emulator: a folder or a .zip. The current save is backed up first.", tab: "SAVES", kind: .action { [weak self] in self?.chooseSaveToImport() }, def: "", game: false),
-            Row(id: "cloud", label: cloud.isEmpty ? "Cloud saves: off" : "Cloud saves: \((cloud as NSString).lastPathComponent)", note: "Syncs the Main save through a folder in iCloud Drive, to your other Macs or the iPhone app. If both saves changed, the game asks which one to keep.", tab: "SAVES", kind: .action { [weak self] in self?.chooseCloudFolder() }, def: "", game: false)]
+            Row(id: "cloud", label: cloud.isEmpty ? "Cloud saves: off" : "Cloud saves: \(Model.folderLabel(cloud))", note: "Syncs the Main save through a folder in iCloud Drive, to your other Macs or the iPhone app. If both saves changed, the game asks which one to keep.", tab: "SAVES", kind: .action { [weak self] in self?.chooseCloudFolder() }, def: "", game: false)]
         if !cloud.isEmpty {
             r.append(Row(id: "cloudOff", label: "Turn off cloud saves", note: "Stops syncing. The save on this Mac and the copy in the folder stay as they are.", tab: "SAVES", kind: .action { [weak self] in
                 self?.setGamePref("cloudSaves.folder", nil); self?.status = "Cloud saves off."; self?.reloadRows() }, def: "", game: false))
