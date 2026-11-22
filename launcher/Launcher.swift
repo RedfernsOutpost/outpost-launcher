@@ -215,6 +215,7 @@ final class Model: ObservableObject {
     @Published var listPanel: ListSpec?
     @Published var message: MessageSpec?
     var gameObserver: NSObjectProtocol?
+    var tucking = false
     private var padTimer: Timer?
     lazy var installer = Installer(self)
     /// Set by the view: rebuild the whole menu from the theme files (after the art step wrote new ones).
@@ -298,6 +299,7 @@ final class Model: ObservableObject {
         if let d = try? Data(contentsOf: url.appendingPathComponent("Contents/Resources/dm/launcher.json")),
            let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] { list = j["settings"] as? [[String: Any]] ?? [] }
         buildRows(list)
+        tuckGameIfNeeded()
     }
 
     func buildRows(_ list: [[String: Any]]) {
@@ -490,6 +492,7 @@ final class Model: ObservableObject {
     func play() {
         guard let url = gameURL, !launching else { audio.play("back"); return }
         if gameRunning { NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.activate(); return }
+        if tucking { status = "One moment: finishing setting up the game…"; audio.play("back"); return }
         launching = true; status = "Starting…"
         audio.play(theme.sounds["start"] != nil ? "start" : "select"); audio.fade(to: 0, over: 1.0)
         quietGameWindow()

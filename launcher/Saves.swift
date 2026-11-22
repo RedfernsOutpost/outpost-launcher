@@ -585,6 +585,28 @@ struct MessagePanel: View {
     }
 }
 
+// MARK: - Keep the game inside out of Apple's Games app
+
+extension Model {
+    /// The nxnative app inside this launcher (Contents/Game) carries the games category, so macOS lists it in the
+    /// Games app next to the launcher once it has run. Move the category aside (DMOriginalCategory) and re-sign it ad hoc,
+    /// once, in the background; Play waits for it.
+    func tuckGameIfNeeded() {
+        guard let g = gameURL, g.path.hasPrefix(embeddedGameFolder.path) else { return }
+        let plist = g.appendingPathComponent("Contents/Info.plist")
+        guard let d = NSMutableDictionary(contentsOf: plist), let cat = d["LSApplicationCategoryType"] as? String else { return }
+        tucking = true
+        DispatchQueue.global(qos: .utility).async {
+            d.removeObject(forKey: "LSApplicationCategoryType"); d["DMOriginalCategory"] = cat
+            if d.write(to: plist, atomically: true) {
+                _ = Tools.run(URL(fileURLWithPath: "/usr/bin/codesign"), ["--force", "--sign", "-", "--preserve-metadata=identifier,entitlements,flags", g.path])
+                _ = Tools.run(URL(fileURLWithPath: "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"), ["-u", g.path])
+            }
+            DispatchQueue.main.async { self.tucking = false }
+        }
+    }
+}
+
 // MARK: - Self-test (LAUNCHER_SELFTEST=saves with LAUNCHER_DATA_ROOT=<scratch folder>): runs the file logic, prints PASS/FAIL, quits
 
 extension Model {
