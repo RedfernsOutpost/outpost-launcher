@@ -330,6 +330,10 @@ final class Model: ObservableObject {
         let padActions = [
             Row(id: "padTest", label: "Test buttons", note: "Press buttons and move the sticks to see what the game will get.", tab: "CONTROLS", kind: .action { [weak self] in self?.requestPanel = "PADTEST" }, def: "", game: false),
             Row(id: "padHelp", label: "Pairing help", note: "How to connect Xbox, PlayStation, Switch, Switch 2 and 8BitDo controllers.", tab: "CONTROLS", kind: .action { [weak self] in self?.requestPanel = "PAIRHELP" }, def: "", game: false),
+            Row(id: "padMap", label: "Map buttons", note: PadMap.supported(game: gameURL)
+                    ? "Pick a Switch button, then press the controller button you want for it. One layout for all your launchers."
+                    : "Your own button layout, set with the controller. This game's engine doesn't support it yet: use Remap buttons below.",
+                tab: "CONTROLS", kind: .action { [weak self] in self?.requestPanel = "PADMAP" }, def: "", game: false),
             Row(id: "padRemap", label: "Remap buttons", note: "Opens macOS's Game Controllers settings. Swap any buttons (like A and B) for each controller; games and this menu follow it.", tab: "CONTROLS", kind: .action { NSWorkspace.shared.open(Pads.remapURL) }, def: "", game: false)]
         let padSwitches = PadOptions.all.filter { !gameEnvs.contains($0.env) }.map {
             Row(id: PadOptions.key($0.env), label: $0.label, note: $0.note, tab: "CONTROLS", kind: .toggle(on: "1", off: "0"), def: $0.def, game: false)
@@ -503,6 +507,7 @@ final class Model: ObservableObject {
         env.merge(profileEnvironment()) { a, _ in a }
         env.merge(modEnvironment()) { a, _ in a }
         env.merge(Pads.ekipadEnvironment()) { a, _ in a }
+        env.merge(PadMap.environment()) { a, _ in a }
         if let nick = UserDefaults.standard.string(forKey: "playerName"), !nick.isEmpty { env["DM_NICK"] = nick }
         cfg.environment = env
         let started = Date()
@@ -590,6 +595,8 @@ struct RootView: View {
     @State var tab = "GAME"
     @State var rowIndex = 0
     @State var listIndex = 0
+    @State var mapIndex = 0
+    @State var mapListening = false
     @State var messageIndex = 0
     @State var returnPanel = "SETTINGS"   // where LIST / MESSAGE / the controller panels go back to
     @State var slide = 0
@@ -610,6 +617,7 @@ struct RootView: View {
             else if panel == "INSTALL" { InstallPanel(m: m, t: t, close: { closePanel() }).transition(.opacity) }
             else if panel == "PADTEST" { PadTestPanel(t: t, close: { backToControls() }).transition(.opacity) }
             else if panel == "PAIRHELP" { PairHelpPanel(t: t, close: { backToControls() }).transition(.opacity) }
+            else if panel == "PADMAP" { PadMapPanel(t: t, supported: PadMap.supported(game: m.gameURL), index: $mapIndex, listening: $mapListening, close: { backToControls() }).transition(.opacity) }
             else if panel == "LIST", let spec = m.listPanel { ListPanel(t: t, spec: spec, index: $listIndex, choose: { pickListItem($0) }, close: { backFromOverlay() }).transition(.opacity) }
             else if panel == "MESSAGE", let spec = m.message { MessagePanel(t: t, spec: spec, index: $messageIndex, press: { pressMessage($0) }).transition(.opacity) }
             else if panel != nil { settingsPanel.transition(.opacity) } else { statusBar }
@@ -625,6 +633,7 @@ struct RootView: View {
             guard let p else { return }
             m.requestPanel = nil; m.audio.play("select")
             if p == "LIST" { listIndex = 0 }
+            if p == "PADMAP" { mapIndex = 0; mapListening = false }
             if p == "MESSAGE" { messageIndex = 0 }
             if let cur = panel, cur != "LIST", cur != "MESSAGE", cur != "PADTEST", cur != "PAIRHELP" { returnPanel = cur }
             if panel == nil { returnPanel = "" }   // e.g. the crash notice over the main menu
@@ -917,6 +926,20 @@ struct RootView: View {
         if panel == "INSTALL" { if i == .back && !m.installer.building { closePanel() }; return }
         // The tester shows every button, so a controller's B doesn't close it (holding it does, in the panel).
         if panel == "PADTEST" { if i == .back && !input.lastFromPad { backToControls() }; return }
+        if panel == "PADMAP" {
+            let n = PadMap.buttons.count + 1
+            if mapListening { if i == .back && !input.lastFromPad { mapListening = false; m.audio.play("back") }; return }   // the panel takes the next pad button
+            switch i {
+            case .up: mapIndex = (mapIndex + n - 1) % n; m.audio.play("move")
+            case .down: mapIndex = (mapIndex + 1) % n; m.audio.play("move")
+            case .ok:
+                m.audio.play("select")
+                if mapIndex == n - 1 { PadMap.map = [:] } else { mapListening = true }
+            case .back: backToControls()
+            default: break
+            }
+            return
+        }
         if panel == "PAIRHELP" { if i == .ok { NSWorkspace.shared.open(Pads.bluetoothURL) } else if i == .back { backToControls() }; return }
         if panel == "LIST", let spec = m.listPanel {
             switch i {

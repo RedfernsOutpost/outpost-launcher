@@ -176,6 +176,7 @@ struct PadTestPanel: View {
         s.ls = CGPoint(x: CGFloat(g.leftThumbstick.xAxis.value), y: CGFloat(g.leftThumbstick.yAxis.value))
         s.rs = CGPoint(x: CGFloat(g.rightThumbstick.xAxis.value), y: CGFloat(g.rightThumbstick.yAxis.value))
         s.lt = g.leftTrigger.value; s.rt = g.rightTrigger.value
+        s.pressed = PadMap.apply(s.pressed)   // your own layout, as the game gets it
         return s
     }
 
@@ -352,5 +353,138 @@ struct PairHelpPanel: View {
             .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color(hex: t.border), lineWidth: 2))
             .shadow(color: .black.opacity(0.6), radius: 30)
         }
+    }
+}
+
+// MARK: - Your own button layout (DM_PAD_MAP, needs an nxnative engine with the option)
+
+/// The layout is shared by every Outpost Launcher (one preferences domain), so it's set once for all games.
+enum PadMap {
+    static let buttons = ["A", "B", "X", "Y", "L", "R", "ZL", "ZR", "PLUS", "MINUS", "LS", "RS"]
+    static let shown: [String: String] = ["PLUS": "+", "MINUS": "−", "LS": "L3", "RS": "R3"]
+    static func label(_ b: String) -> String { shown[b] ?? b }
+    static let store = UserDefaults(suiteName: "io.github.redfernsoutpost.launcher") ?? .standard
+    /// target → source: the pad button that gives `source` by default now gives `target`.
+    static var map: [String: String] {
+        get { (store.dictionary(forKey: "padMap") as? [String: String]) ?? [:] }
+        set { store.set(newValue.filter { $0.key != $0.value }, forKey: "padMap") }
+    }
+    static func source(_ target: String) -> String { map[target] ?? target }
+    static var isCustom: Bool { !map.isEmpty }
+    /// Give `target` the pad button that by default gives `newSource`; the target that had it takes target's old one (a swap).
+    static func assign(_ target: String, from newSource: String) {
+        var m = Dictionary(uniqueKeysWithValues: buttons.map { ($0, source($0)) })
+        let old = m[target] ?? target
+        if let other = m.first(where: { $0.value == newSource && $0.key != target })?.key { m[other] = old }
+        m[target] = newSource
+        map = m
+    }
+    static func environment() -> [String: String] {
+        guard isCustom else { return [:] }
+        return ["DM_PAD_MAP": buttons.map { "\($0)=\(source($0))" }.joined(separator: ",")]
+    }
+    /// The Switch buttons the game gets for a set of default ones, with the layout applied.
+    static func apply(_ pressed: Set<String>) -> Set<String> {
+        guard isCustom else { return pressed }
+        var out = pressed.subtracting(buttons)
+        for t in buttons where pressed.contains(source(t)) { out.insert(t) }
+        return out
+    }
+    /// Whether the game's engine reads DM_PAD_MAP (the option's name is in the dmhost program).
+    static func supported(game: URL?) -> Bool {
+        guard let g = game, let d = try? Data(contentsOf: g.appendingPathComponent("Contents/MacOS/dmhost"), options: .mappedIfSafe) else { return false }
+        return d.range(of: Data("DM_PAD_MAP".utf8)) != nil
+    }
+}
+
+struct PadMapPanel: View {
+    let t: Theme
+    let supported: Bool
+    @Binding var index: Int
+    @Binding var listening: Bool
+    let close: () -> Void
+    @State private var timer: Timer?
+    @State private var waitRelease = true
+    @State private var glyphs: [String: String] = [:]
+    @State private var tick = 0   // redraw after a change
+    @State private var version = ""   // the stored layout, so a change from the keyboard or controller redraws too
+    func font(_ name: String, _ size: CGFloat, _ w: Font.Weight = .bold) -> Font { .custom(name, size: size).weight(w) }
+    var rows: [String] { PadMap.buttons + ["RESET"] }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("MAP BUTTONS").font(font(t.labelFont, 24, .heavy)); Spacer()
+                    Image(systemName: "xmark").font(.system(size: 22, weight: .bold)).contentShape(Rectangle()).onTapGesture(perform: close)
+                }
+                Text(supported ? "Choose a Switch button, then press the button on your controller you want for it. The two swap places. Used by every Outpost Launcher."
+                               : "This game's engine doesn't have the button-layout option yet, so a layout set here won't reach it. Use Remap buttons (macOS settings) instead.")
+                    .font(font(t.bodyFont, 14, .regular)).foregroundStyle(Color(hex: t.dim)).fixedSize(horizontal: false, vertical: true)
+                ScrollViewReader { sv in
+                    ScrollView {
+                        VStack(spacing: 6) {
+                            ForEach(Array(rows.enumerated()), id: \.offset) { i, b in row(b, i).id(i) }
+                        }
+                    }
+                    .onChange(of: index) { _, i in withAnimation { sv.scrollTo(i) } }
+                }
+                Text(listening ? "Press a button on your controller…   (Esc cancels)" : "↑↓ choose   A / Return change   B / Esc back")
+                    .font(font(t.bodyFont, 12, .medium)).foregroundStyle(listening ? Color(hex: t.accent) : Color(hex: t.dim).opacity(0.7))
+            }
+            .padding(28).frame(width: 760, height: 620)
+            .background(Color(hex: t.panel).opacity(0.94))
+            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color(hex: t.border), lineWidth: 2))
+            .shadow(color: .black.opacity(0.6), radius: 30)
+        }
+        .onAppear {
+            timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { _ in
+                let s = PadTestPanel.read()
+                if !s.glyph.isEmpty && s.glyph != glyphs { glyphs = s.glyph }
+                let v = PadMap.map.sorted { $0.key < $1.key }.description
+                if v != version { version = v }
+                guard listening else { waitRelease = true; return }
+                let pressed = s.pressed.intersection(PadMap.buttons)
+                if waitRelease { if pressed.isEmpty { waitRelease = false }; return }   // the press that started listening must end first
+                if let src = PadMap.buttons.first(where: { pressed.contains($0) }), PadMap.buttons.indices.contains(index) {
+                    PadMap.assign(PadMap.buttons[index], from: src)
+                    listening = false; waitRelease = true; tick += 1
+                }
+            }
+        }
+        .onDisappear { timer?.invalidate(); listening = false }
+    }
+
+    func row(_ b: String, _ i: Int) -> some View {
+        let sel = i == index
+        return HStack {
+            if b == "RESET" {
+                Text("Reset to the standard layout").font(font(t.labelFont, 18, .semibold)).frame(maxWidth: .infinity)
+            } else {
+                Text("SWITCH \(PadMap.label(b))").font(font(t.labelFont, 18, .heavy))
+                Spacer()
+                if sel && listening { Text("press a button…").font(font(t.bodyFont, 16, .semibold)).foregroundStyle(Color(hex: t.accent)) }
+                else {
+                    let src = PadMap.source(b)
+                    if let g = glyphs[src] { Image(systemName: g).font(.system(size: 16, weight: .semibold)) }
+                    Text(src == b ? "standard" : "your pad's \(PadMap.label(src)) button").font(font(t.bodyFont, 16, .semibold))
+                        .foregroundStyle(src == b ? Color(hex: t.dim) : Color(hex: t.text))
+                }
+            }
+        }
+        .padding(.horizontal, 20).frame(height: 42)
+        .background(RoundedRectangle(cornerRadius: 12).fill(sel ? Color(hex: t.border).opacity(0.22) : Color.black.opacity(0.25)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: t.border).opacity(sel ? 0.95 : 0.35), lineWidth: sel ? 2 : 1))
+        .contentShape(Rectangle())
+        .onHover { h in if h && !listening { index = i } }
+        .onTapGesture { index = i; activate() }
+        .id("\(b)-\(tick)-\(version)")
+    }
+
+    func activate() {
+        guard rows.indices.contains(index) else { return }
+        if rows[index] == "RESET" { PadMap.map = [:]; tick += 1 } else { listening = true; waitRelease = true }
     }
 }
