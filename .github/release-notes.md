@@ -1,3 +1,10 @@
+**New in v1.1.0: Outpost Launcher**
+- Signed and notarized by Apple: no more Open Anyway.
+- **Controls tab:** connected controllers with battery, Test buttons, pairing help (Xbox, PlayStation, Switch, Switch 2, 8BitDo, Ekipad), Remap buttons, Map buttons (your own layout, set with the controller; needs an nxnative with `DM_PAD_MAP`), and Switch 2 / motion / player options.
+- **Saves tab:** backups before each Play (newest 10 kept), restore, import from JKSV or emulators, save profiles, player name, cloud saves folder. If both the cloud save and this Mac's changed, the game now asks which to keep.
+- **Mods tab:** turn cheats on and off, add cheat files, add file-replacement mods.
+- Play time and last played; a notice with the log if the game crashes; the launcher comes back when the game closes.
+
 Download the launcher for your game, double-click the zip, and open the app.
 
 **First time you open it**
