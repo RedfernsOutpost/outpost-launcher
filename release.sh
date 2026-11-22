@@ -18,14 +18,20 @@ ID=$(security find-identity -v -p codesigning | grep -m1 '"Developer ID Applicat
 xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 || { echo "No notary login saved as '$PROFILE' (see the top of this file)."; exit 1; }
 echo "signing with your Developer ID certificate"
 
+# Build from a clean copy of the committed kit: nothing local (themes/ can hold game art from testing) may reach a release.
+[[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo "Commit or stash your changes first."; exit 1; }
+SRC=$(mktemp -d /tmp/outpost-release.XXXXXX)
+git archive HEAD | tar -x -C "$SRC"
+GAMES=(${=GAMES:-suikoden shiningpearl pokopia fireemblem oot firered})   # GAMES="suikoden" redoes one
+
 rm -rf dist; mkdir -p dist
-for g in suikoden shiningpearl pokopia fireemblem oot firered; do
-  name=$(plutil -extract name raw -o - recipes/$g/theme.json)
+for g in $GAMES; do
+  name=$(plutil -extract name raw -o - "$SRC/recipes/$g/theme.json")
   app="dist/${name//: / - }.app"
   slug=$(print -r -- "$name" | iconv -f UTF-8 -t ASCII//TRANSLIT | tr -d "'\"^~" | tr -cs 'A-Za-z0-9' '-' | sed 's/^-//; s/-$//')
   zip="dist/$slug-Launcher.zip"
   echo "== $name"
-  zsh make_launcher.sh $g --out "$app" >/dev/null
+  zsh "$SRC/make_launcher.sh" $g --out "$KIT/$app" >/dev/null
   codesign --force --options runtime --timestamp --sign "$ID" "$app"
   codesign --verify --strict "$app"
   ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
@@ -33,6 +39,10 @@ for g in suikoden shiningpearl pokopia fireemblem oot firered; do
   xcrun stapler staple -q "$app"
   spctl -a -t exec "$app" && echo "   Gatekeeper: accepted"
   rm -f "$zip"; ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"   # zip again with the ticket stapled
+  # Last guard: a downloadable launcher holds code, colours and layout only, never a game's pictures or sounds.
+  if unzip -Z1 "$zip" | grep -i -E '\.(png|jpe?g|m4a|wav|ogg|icns|webm|mp4|bmp|gif)$' | grep -v '/kit/recipes/'; then
+    echo "STOP: $zip contains pictures or audio (above); nothing was uploaded."; exit 1
+  fi
   rm -rf "$app"
 done
 ls -l dist
