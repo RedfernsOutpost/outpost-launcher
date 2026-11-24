@@ -32,6 +32,12 @@ When the install finishes, press **DONE** to see the game's art and hear its mus
 
 **Settings → Controls → Map buttons** sets a layout with the controller: pick a Switch button, press the button you want for it. It's shared by every Outpost Launcher and passed to the game as `DM_PAD_MAP`. Stock nxnative doesn't read that option yet (the launcher says so); a small patch for nxnative's controller code adds it. Until then, **Remap buttons** opens macOS's own controller settings.
 
+## While you play
+
+The launcher closes while the game runs (no window, no Dock icon) and comes back when the game ends, with your play time and a notice if the game crashed. Set **Tools → When the game closes** to *Close launcher* to skip that.
+
+**In-game menu:** hold Home (or Minus and Plus together) for 2 seconds, or press Esc, for Resume, Restart game, Full screen, Change settings and Quit game. Change settings closes the game and opens the launcher. The launcher turns it on with `DM_GAME_MENU`; stock nxnative doesn't have it yet (the launcher says so), it takes a small patch to nxnative's window code. Save states aren't possible: nxnative runs the game as native code across many threads and the GPU, with nothing to snapshot.
+
 ## Games with recipes
 
 | recipe | game | title ID |

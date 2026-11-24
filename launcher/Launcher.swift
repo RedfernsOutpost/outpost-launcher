@@ -334,6 +334,10 @@ final class Model: ObservableObject {
                     ? "Pick a Switch button, then press the controller button you want for it. One layout for all your launchers."
                     : "Your own button layout, set with the controller. This game's engine doesn't support it yet: use Remap buttons below.",
                 tab: "CONTROLS", kind: .action { [weak self] in self?.requestPanel = "PADMAP" }, def: "", game: false),
+            Row(id: "gameMenu", label: "In-game menu", note: GameMenu.supported(game: gameURL)
+                    ? "While playing, hold Home (or Minus and Plus together) for 2 seconds, or press Esc: Resume, Restart, Full screen, Change settings, Quit."
+                    : "A menu over the game (Restart, Full screen, Change settings, Quit). This game's engine doesn't support it yet.",
+                tab: "CONTROLS", kind: .toggle(on: "1", off: "0"), def: "1", game: false),
             Row(id: "padRemap", label: "Remap buttons", note: "Opens macOS's Game Controllers settings. Swap any buttons (like A and B) for each controller; games and this menu follow it.", tab: "CONTROLS", kind: .action { NSWorkspace.shared.open(Pads.remapURL) }, def: "", game: false)]
         let padSwitches = PadOptions.all.filter { !gameEnvs.contains($0.env) }.map {
             Row(id: PadOptions.key($0.env), label: $0.label, note: $0.note, tab: "CONTROLS", kind: .toggle(on: "1", off: "0"), def: $0.def, game: false)
@@ -508,6 +512,8 @@ final class Model: ObservableObject {
         env.merge(modEnvironment()) { a, _ in a }
         env.merge(Pads.ekipadEnvironment()) { a, _ in a }
         env.merge(PadMap.environment()) { a, _ in a }
+        try? FileManager.default.removeItem(at: menuReturnFile)
+        if (values["gameMenu"] ?? "1") == "1" && GameMenu.supported(game: url) { env["DM_GAME_MENU"] = "1"; env["DM_GAME_MENU_LAUNCHER"] = menuReturnFile.path }
         if let nick = UserDefaults.standard.string(forKey: "playerName"), !nick.isEmpty { env["DM_NICK"] = nick }
         cfg.environment = env
         let started = Date()
@@ -517,8 +523,8 @@ final class Model: ObservableObject {
                     self.launching = false
                     if let err { self.status = "Couldn't start the game: \(err.localizedDescription)"; self.audio.applyVolume(); return }
                     self.status = ""
-                    // Stay out of the way while the game runs, and come back when it ends (play time, crash notice).
-                    NSApp.hide(nil)
+                    // Close while the game runs (no window, no Dock icon), and come back when it ends (play time, crash notice).
+                    self.hideWhilePlaying()
                     guard let app else { return }
                     if let o = self.gameObserver { NSWorkspace.shared.notificationCenter.removeObserver(o) }
                     self.gameObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { n in
@@ -529,6 +535,31 @@ final class Model: ObservableObject {
                 }
             }
         }
+    }
+}
+
+// MARK: - Out of sight while the game runs; the in-game menu (nxnative game-menu.patch)
+
+enum GameMenu {
+    /// The game's engine has the menu (DM_GAME_MENU, local nxnative patch).
+    static func supported(game: URL?) -> Bool {
+        guard let g = game, let d = try? Data(contentsOf: g.appendingPathComponent("Contents/MacOS/dmhost"), options: .mappedIfSafe) else { return false }
+        return d.range(of: Data("DM_GAME_MENU".utf8)) != nil
+    }
+}
+
+extension Model {
+    /// The game writes this file when the player picks Change settings in its menu, then quits.
+    var menuReturnFile: URL { FileManager.default.temporaryDirectory.appendingPathComponent("outpost-launcher-\(bundleID.isEmpty ? "game" : bundleID)-settings") }
+    func hideWhilePlaying() {
+        audio.fade(to: 0, over: 0.3)
+        for w in NSApp.windows { w.orderOut(nil) }
+        NSApp.setActivationPolicy(.accessory)
+    }
+    func showAgain() {
+        NSApp.setActivationPolicy(.regular)
+        (NSApp.delegate as? AppDelegate)?.window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -1056,6 +1087,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
+    /// Opened again while the game runs (the launcher is out of sight): bring the game forward.
+    func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        let games = Bundle.main.bundleURL.appendingPathComponent("Contents/Game").standardizedFileURL.path
+        if let game = NSWorkspace.shared.runningApplications.first(where: { $0.bundleURL?.standardizedFileURL.path.hasPrefix(games) == true }) { game.activate(); return false }
+        window.makeKeyAndOrderFront(nil); return false
+    }
 }
 
 @main

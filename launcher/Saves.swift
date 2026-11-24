@@ -472,11 +472,14 @@ extension Model {
         UserDefaults.standard.set(Date(), forKey: "lastPlayed")
         let code = exitCode(since: started)
         let crashed = code.map { $0 != 0 } ?? false
-        if !crashed && UserDefaults.standard.string(forKey: "afterGame") == "quit" { NSApp.terminate(nil); return }
-        NSApp.unhide(nil); NSApp.activate(ignoringOtherApps: true)
+        let fm = FileManager.default, toSettings = fm.fileExists(atPath: menuReturnFile.path)   // Change settings in the in-game menu
+        try? fm.removeItem(at: menuReturnFile)
+        if !crashed && !toSettings && UserDefaults.standard.string(forKey: "afterGame") == "quit" { NSApp.terminate(nil); return }
+        showAgain()
         audio.fade(to: audio.musicOn ? audio.musicVolume : 0, over: 1.0)
         reloadRows()
         status = "Played \(Model.duration(secs)). Total: \(Model.duration(totalPlay))."
+        if toSettings { status = "Change your settings, then press PLAY. " + status }
         if crashed, let code {
             let why: String
             switch code {
